@@ -1,0 +1,4 @@
+modal
+psycopg[binary]
+python-dotenv
+pytest
