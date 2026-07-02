@@ -12,6 +12,9 @@ decisions.jsonl
 *.jpeg
 *.png
 
+# jetbrains ide
+.idea/
+
 # python
 __pycache__/
 *.pyc
