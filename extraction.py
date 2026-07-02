@@ -19,6 +19,15 @@ USER_ID_RE = re.compile(WAREHOUSE_MARKER + r"\s*(\d{5,7})\s*号")
 # grabbing a 7-digit tail of, say, a tracking code that happens to precede 号.
 CANDIDATE_RE = re.compile(r"(?<!\d)(\d{5,7})\s*号")
 
+# looser "this is a SilkWay warehouse label" signal. OCR frequently mangles the
+# exact 首都波 glyphs (seen live: 首都表, 首部城) or splits them with spaces, so the
+# exact USER_ID_RE misses even on a genuine warehouse label. these tokens survive
+# that noise: 库区 (the storage-zone word right before the id block) and 航达 (the
+# building name) are fixed warehouse identifiers, and 首[都部] catches any near-
+# spelling of the 首都波 marker itself. presence of any of them means the address
+# block is the warehouse's, so a 号-terminated id run on the label can be trusted.
+FUZZY_MARKER_RE = re.compile(r"库区|航达|首[都部]")
+
 # broadest fallback: every *maximal* digit run on the label, with no 号 or marker
 # requirement. real labels turned out not to follow the 首都波...号 layout, yet the
 # member_id is still a standalone 5-7 digit run. matching whole runs (the
@@ -34,6 +43,13 @@ def extract_user_id(transcript: str) -> str | None:
     if match:
         return match.group(1)
     return None
+
+
+def has_warehouse_marker(transcript: str) -> bool:
+    # true when the transcript carries a warehouse-address signal in any form,
+    # even one too mangled for the exact-marker regex. lets the resolver trust a
+    # 号-terminated id run on a label it can recognize as the warehouse's.
+    return FUZZY_MARKER_RE.search(transcript) is not None
 
 
 def find_id_candidates(transcript: str) -> list[str]:

@@ -12,6 +12,9 @@ decisions.jsonl
 *.jpeg
 *.png
 
+# db-built eval set: real photos + a manifest of real member_ids (PII), data only
+eval_samples/db/
+
 # jetbrains ide
 .idea/
 

@@ -12,11 +12,36 @@ deterministic Python extracts digit runs → **Postgres `users.member_id` is the
 arbiter**. VLMs have no reliable confidence and can hallucinate digits, so a DB
 match is the confidence signal — not the model.
 
+## Real-data eval (2026-07-02)
+
+Photos + ground truth come straight from the prod DB: `cargo_parcels.images` are
+the courier photos, and each parcel's `user_id → users.member_id` is the verified
+member_id (the warehouse already matched the parcel to that client). `build_db_eval.py`
+downloads N labeled photos; `eval_platforms` scores the full pipeline against them.
+
+**50 real (old, pre-high-visibility) photos:**
+
+| Metric | Exact marker only | **+ Fuzzy marker (shipped)** |
+|---|---|---|
+| Correct read | 26/50 | 27/50 |
+| Auto-accepted | 0/50 | **18/50 (36%)** |
+| — correct | 0 | 17 |
+| — **false-accept** | 0 | **1** (`912183`→`912185`) |
+
+Decision: **ship fuzzy auto-accept unattended** — 36% hands-off, ~2% of parcels
+get a wrong id (a single-digit misread that lands on another real client). The
+DB-arbiter still blocks all non-member-id garbage; the residual error is
+adjacent-client digit collisions only.
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,
   loaded in `@modal.enter()`, `memory=16384` reserved to stop the cold-start
   weight-load OOM (exit 137) from intermittently killing containers.
+- **Fuzzy-marker auto-accept** (`extraction.has_warehouse_marker` + `validation.py`
+  tier): OCR often mangles the exact `首都波` glyphs (`首都表`/`首部城`), so a looser
+  warehouse signal (`库区`/`航达`/`首[都部]`) plus a unique DB-valid `号`-terminated id
+  run now auto-accepts. Runs locally in the entrypoint — no Modal redeploy needed.
 - **Format-agnostic extraction** (`extraction.py`): `find_member_id_candidates`
   collects every maximal 5–7 digit run; DB uniqueness picks the real id among
   same-length decoys. Marker path (`首都波\s*(\d{5,7})\s*号`) kept on top as the

@@ -122,6 +122,46 @@ def test_resolve_fallback_multiple_db_valid_candidates(store):
     assert sorted(decision["candidates"]) == ["100200", "960662"]
 
 
+# fuzzy positional marker: OCR mangled the 首都波 glyphs but the label is still
+# recognizably a warehouse label and the id run before 号 is a real client
+
+
+def test_resolve_fuzzy_marker_accepts_when_glyphs_mangled(store):
+    # live failure mode: OCR read 首都波 as 首部城, so the exact marker missed, yet
+    # the id sits before 号 on a clearly-warehouse label (库区 / 航达 present).
+    decision = resolve_member_id("航达B03库区首部城960662号", store)
+    assert decision["status"] == "accept"
+    assert decision["member_id"] == "960662"
+    assert decision["confidence"] == "high"
+    assert decision["source"] == "marker_fuzzy"
+
+
+def test_resolve_fuzzy_marker_requires_warehouse_marker(store):
+    # same 号-terminated real id, but no warehouse marker anywhere: must NOT
+    # auto-accept a stray 号-number on an unrecognized label; stays db_scan manual.
+    decision = resolve_member_id("某商家地址 960662号", store)
+    assert decision["status"] == "manual"
+    assert decision["member_id"] == "960662"
+    assert decision["source"] == "db_scan"
+
+
+def test_resolve_fuzzy_marker_declines_when_ambiguous(store):
+    # warehouse marker present but two 号-runs are both real clients: the fuzzy
+    # path must decline (not unique) and fall through to the ambiguous db_scan.
+    store.add("100200")
+    decision = resolve_member_id("库区首部城960662号 别的100200号", store)
+    assert decision["status"] == "manual"
+    assert decision["source"] == "db_scan"
+    assert sorted(decision["candidates"]) == ["100200", "960662"]
+
+
+def test_resolve_exact_marker_preempts_fuzzy(store):
+    # when the exact 首都波 glyphs survive, the high-confidence exact path wins and
+    # the fuzzy path never runs.
+    decision = resolve_member_id("库区首都波960662号", store)
+    assert decision["source"] == "marker"
+
+
 # find_matching: LIKE-pattern lookup behind the wildcard resolution
 
 

@@ -3,7 +3,9 @@ import sqlite3
 
 from extraction import (
     extract_user_id,
+    find_id_candidates,
     find_member_id_candidates,
+    has_warehouse_marker,
     wildcard_patterns,
 )
 
@@ -157,10 +159,32 @@ def resolve_member_id(transcript: str, store: UserIDStore) -> dict:
             "reason": "marker parsed but id not in db",
         }
 
-    # fallback path: marker missing. real labels often don't follow the
-    # 首都波...号 layout at all, so cast the widest net: every 5-7 digit run on the
-    # label, kept only if it is a real member id in the db. the db is what tells
-    # a true id apart from same-length decoys (a 5-digit hotline, a short code).
+    # fuzzy positional-marker path: OCR frequently mangles the exact 首都波 glyphs
+    # (首都表 / 首部城) or spaces them out, so the exact-marker path above misses even
+    # on a genuine warehouse label. when the label still reads as the warehouse's
+    # (a fuzzy marker is present) AND exactly one 5-7 digit run terminating in 号 is
+    # a real client, trust it as the member_id. two guards bound the risk: the
+    # marker requirement rejects non-warehouse labels, and the single-valid-run
+    # requirement rejects ambiguous ones. residual risk: a clean single-digit
+    # misread that itself lands on a real client can auto-accept — that is the
+    # price of trusting a mangled marker, unlike the exact path where a perfectly
+    # read marker correlates with cleanly read digits.
+    if has_warehouse_marker(transcript):
+        id_runs = find_id_candidates(transcript)
+        valid_runs = [c for c in id_runs if store.exists(c)]
+        if len(valid_runs) == 1:
+            return {
+                "status": "accept",
+                "member_id": valid_runs[0],
+                "confidence": "high",
+                "source": "marker_fuzzy",
+                "reason": "warehouse marker present; unique db-valid id before 号",
+            }
+
+    # fallback path: marker missing or ambiguous. real labels often don't follow
+    # the 首都波...号 layout at all, so cast the widest net: every 5-7 digit run on
+    # the label, kept only if it is a real member id in the db. the db is what
+    # tells a true id apart from same-length decoys (a 5-digit hotline, short code).
     candidates = find_member_id_candidates(transcript)
     valid = [c for c in candidates if store.exists(c)]
 
