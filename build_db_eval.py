@@ -22,19 +22,28 @@ load_dotenv()
 
 import psycopg
 
-# how many labeled photos to assemble (default 10)
+# usage: python build_db_eval.py [N] [recent|random]
+#   recent (default) -> the N most recent parcels (current framing practice)
+#   random           -> a uniform sample across the whole table, i.e. across all
+#                       dates, to check the accuracy holds beyond the latest batch
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+MODE = sys.argv[2] if len(sys.argv) > 2 else "recent"
 
-OUT_DIR = os.path.join("eval_samples", "db")
+# keep the two sets in separate folders so a random pull never clobbers the
+# recent one (or its review page). both are git-ignored (real member_ids).
+OUT_DIR = os.path.join("eval_samples", "db" if MODE == "recent" else "db_random")
 MANIFEST = os.path.join(OUT_DIR, "manifest.json")
 
 
 def fetch_candidates(limit):
-    """Recent parcels with an image and a clean numeric member_id (ground truth).
+    """Parcels with an image and a clean numeric member_id (ground truth).
 
     We over-fetch (3x) so failed downloads or empty image arrays still leave
-    enough good rows to reach `limit`.
+    enough good rows to reach `limit`. `recent` orders by newest; `random`
+    samples uniformly across the whole table (a full scan+sort on ~1M rows,
+    fine for a one-off), so the set spans all dates rather than the latest day.
     """
+    order = "random()" if MODE == "random" else "p.created_at desc"
     conn = psycopg.connect(
         host=os.environ["DB_HOST"],
         port=os.environ["DB_PORT"],
@@ -44,14 +53,14 @@ def fetch_candidates(limit):
     )
     cur = conn.cursor()
     cur.execute(
-        """
-        select p.parcel_id, p.images[1], u.member_id
+        f"""
+        select p.parcel_id, p.images[1], u.member_id, p.created_at
         from cargo_parcels p
         join users u on u.id = p.user_id
         where p.images is not null
           and array_length(p.images, 1) > 0
-          and u.member_id ~ '^[0-9]{5,7}$'
-        order by p.created_at desc
+          and u.member_id ~ '^[0-9]{{5,7}}$'
+        order by {order}
         limit %s
         """,
         (limit * 3,),
@@ -77,7 +86,7 @@ def main():
     print(f"fetched {len(candidates)} candidate rows; targeting {N} photos")
 
     manifest = []
-    for parcel_id, url, member_id in candidates:
+    for parcel_id, url, member_id, created_at in candidates:
         if len(manifest) >= N:
             break
         fname = f"parcel_{parcel_id}.jpg"
@@ -87,8 +96,11 @@ def main():
         except Exception as e:
             print(f"  skip parcel {parcel_id}: download failed ({type(e).__name__})")
             continue
-        manifest.append({"file": fname, "member_id": member_id, "platform": "db"})
-        print(f"  ok  parcel {parcel_id}  member_id={member_id}  {size} bytes")
+        # tag the sample with its year-month as the "platform", so eval_platforms'
+        # per-platform table becomes an accuracy-over-time breakdown.
+        bucket = created_at.strftime("%Y-%m") if created_at else "unknown"
+        manifest.append({"file": fname, "member_id": member_id, "platform": bucket})
+        print(f"  ok  parcel {parcel_id}  member_id={member_id}  {bucket}  {size} bytes")
 
     with open(MANIFEST, "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
