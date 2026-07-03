@@ -7,6 +7,9 @@ user_ids.db
 # decision log: real transcripts + ids, treat as data, never commit
 decisions.jsonl
 
+# preprocess A/B experiment log: same real transcripts + ids, data only
+preprocess_ab.jsonl
+
 # sample courier photos: real client member_ids + addresses (PII), never commit
 *.jpg
 *.jpeg

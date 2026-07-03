@@ -270,3 +270,94 @@ def eval_platforms(manifest: str = "eval_manifest.json"):
     groups, total = aggregate(rows)
     print()
     print(format_table(groups, total))
+
+
+# A/B test the brightness preprocess. run with:
+#   modal run modal_app.py::ab_preprocess [--manifest ...] [--limit N]
+# the real photos are badly underexposed, so this measures the lift from
+# brightening each image before the VLM sees it. every photo is transcribed TWICE
+# in one warm container — raw and preprocessed — and both are scored against the
+# same ground truth, so the two arms differ only by the preprocess. results are
+# printed and written to preprocess_ab.jsonl; the shipped decisions.jsonl (the
+# baseline) is left untouched.
+@app.local_entrypoint()
+def ab_preprocess(manifest: str = "eval_samples/db/manifest.json", limit: int = 0):
+    import json
+    import os
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    from validation import PostgresUserIDStore, resolve_member_id
+    from evaluation import score, aggregate, format_table
+    from preprocess import enhance_bytes
+
+    base = os.path.dirname(os.path.abspath(manifest))
+    with open(manifest, encoding="utf-8") as f:
+        samples = json.load(f)
+    if limit:
+        samples = samples[:limit]
+
+    store = PostgresUserIDStore()
+    ocr = QwenOCR()
+
+    # rows per arm for the aggregate table, plus a running count of photos the
+    # preprocess flipped from wrong->right (won) or right->wrong (lost).
+    arms = {"raw": [], "pre": []}
+    won, lost = [], []
+    out = open("preprocess_ab.jsonl", "w", encoding="utf-8")
+
+    for s in samples:
+        path = os.path.join(base, s["file"])
+        if not os.path.exists(path):
+            print(f"skip (missing): {s['file']}")
+            continue
+
+        raw_bytes = open(path, "rb").read()
+        pre_bytes = enhance_bytes(raw_bytes)
+
+        expected = s.get("member_id")
+        platform = s.get("platform", "?")
+
+        outcomes = {}
+        for arm, image_bytes in (("raw", raw_bytes), ("pre", pre_bytes)):
+            transcript = ocr.transcribe.remote(image_bytes, TRANSCRIBE_PROMPT)
+            decision = resolve_member_id(transcript, store)
+            result = score(expected, decision)
+            arms[arm].append({"platform": platform, **result})
+            outcomes[arm] = {"decision": decision, "result": result, "transcript": transcript}
+
+        raw_ok = outcomes["raw"]["result"]["correct"]
+        pre_ok = outcomes["pre"]["result"]["correct"]
+        flip = "won " if (pre_ok and not raw_ok) else "lost" if (raw_ok and not pre_ok) else "same"
+        if flip == "won ":
+            won.append(s["file"])
+        elif flip == "lost":
+            lost.append(s["file"])
+
+        out.write(json.dumps({"file": s["file"], "expected": expected, **outcomes}, ensure_ascii=False) + "\n")
+        print(
+            f"{flip}  {s['file']:<22} exp={str(expected):<8} "
+            f"raw={str(outcomes['raw']['decision'].get('member_id')):<8}"
+            f"({outcomes['raw']['decision']['status'][:3]})  "
+            f"pre={str(outcomes['pre']['decision'].get('member_id')):<8}"
+            f"({outcomes['pre']['decision']['status'][:3]})"
+        )
+
+    out.close()
+    if not arms["raw"]:
+        print("no samples evaluated.")
+        return
+
+    for arm in ("raw", "pre"):
+        groups, total = aggregate(arms[arm])
+        print(f"\n=== {arm} ===")
+        print(format_table(groups, total))
+
+    print(f"\npreprocess flipped {len(won)} wrong->right, {len(lost)} right->wrong")
+    if won:
+        print("  won:  " + ", ".join(won))
+    if lost:
+        print("  lost: " + ", ".join(lost))
+    print("per-photo detail written to preprocess_ab.jsonl")

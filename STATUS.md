@@ -53,6 +53,28 @@ the model faithfully transcribes stickers our labels then mark wrong; (b) it doe
 **not** rescue marker-free accept — whether the sticker or the link is wrong,
 accepting that run still lands on the wrong client, so the gate stays regardless.
 
+**Brightness preprocess measured — does NOT help, not shipped (2026-07-03).**
+Controlled A/B via `modal_app.py::ab_preprocess`: each of the 50 db photos
+transcribed twice in one container — raw vs brightened (`preprocess.py`,
+autocontrast + adaptive gamma) — scored against the same ground truth.
+
+| Arm | Correct | Auto-accept | False-accept |
+|---|---|---|---|
+| raw | 27/50 | 18/50 | 1 |
+| preprocessed | 26/50 | 18/50 | 1 |
+
+3 photos flipped wrong→right, 4 right→wrong — they cancel (net −1 correct, accept
+and false-accept unchanged). Mechanism: brightening **perturbs borderline id-digit
+reads**, fixing some misreads (`964945`→`966045`) and creating others (`972511`→
+an inserted `8`→None). Not washout — a human finds the brightened frame far more
+legible (`parcel_2654600` goes from near-black to crisp), but the model already
+reads those pixels; the residual digit ambiguity is inherent to the low-quality
+capture, and global tone-mapping just reshuffles the guess. **Do not ship
+preprocessing**; the real lever stays high-visibility capture at source.
+`preprocess.py` + the A/B harness are kept to re-test on high-visibility photos.
+Crop left off: at mean-luminance ~12/255 the sticker isn't the brightest region,
+so threshold-crop can't isolate it (would risk cropping out the id).
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,
