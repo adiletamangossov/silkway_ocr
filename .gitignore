@@ -1,9 +1,10 @@
 # secrets: never commit real credentials
 .env
 
-# local stand-in databases for the validation / decision-sink tests+stubs
+# local stand-in databases for the validation / decision-sink / queue tests+stubs
 user_ids.db
 ocr_decisions.db
+manual_queue.db
 
 # decision log: real transcripts + ids, treat as data, never commit
 decisions.jsonl

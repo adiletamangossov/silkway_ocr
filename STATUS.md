@@ -171,6 +171,29 @@ auto-scoreable by `backfill_gt.py` later. Writes are OFF by default (dry run);
 `--commit` enables the `found_member_id` write. Live dry-run over 2 real parcels
 exercised the fetch → recognize → manual-queue path with no db writes.
 
+## FastAPI parcel backend (`backend_app.py` + `manual_queue.py`)
+
+The event-driven version of the integration, as a real service (distinct from the
+Modal OCR endpoint it calls). A specialist uploads a photo for a parcel; the
+service reads the member_id via `client.recognize` and routes:
+
+- `POST /parcels/{id}/recognize` (multipart photo) → **accept** writes the
+  db-confirmed `member_id` to `cargo_parcels.found_member_id`; **manual** inserts
+  a pending row into the **`ocr_manual_queue`** Postgres table with the OCR guess
+  pre-filled. Returns `{action: accepted|queued, ...}`.
+- `GET /manual-queue` → the specialist work list (pending items + candidates).
+- `POST /manual-queue/{item_id}/resolve` (form `member_id`) → marks the row
+  resolved and writes the verified id to the parcel, closing the loop. A
+  double-resolve is a no-op (never overwrites the first specialist's answer).
+
+`manual_queue.py` mirrors the store pattern: `PostgresManualQueue` (dedicated
+`ocr_manual_queue` table, additive `CREATE TABLE IF NOT EXISTS`, never touches
+`users`/`cargo_parcels`) + `SqliteManualQueue` for offline tests. The queue,
+recognizer, and found_member_id writer are injected as FastAPI dependencies, so
+routing is unit-tested with stubs via `TestClient` — no Modal, no prod db (11 new
+tests). The Postgres `ocr_manual_queue` table was created + verified live.
+`fastapi[standard]` added to requirements. Run: `uvicorn backend_app:app --reload`.
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,

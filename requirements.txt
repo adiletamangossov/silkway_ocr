@@ -2,3 +2,4 @@ modal
 psycopg[binary]
 python-dotenv
 pytest
+fastapi[standard]
