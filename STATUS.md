@@ -133,6 +133,18 @@ thread so concurrent requests don't serialize on the db. Live-verified: a
 turns real traffic into the labeled per-platform eval set the project still
 needs. `SqliteDecisionSink` mirrors it for offline tests.
 
+**Ground-truth backfill + live accuracy (2026-07-07).** `backfill_gt.py` scores
+the logged decisions with no GPU. For any photo whose filename carries a parcel id
+(`parcel_<id>.jpg`, as `build_db_eval.py` names them), it fills `corrected_id` in
+one idempotent set-based UPDATE via the same linkage `eval_platforms` trusts —
+`cargo_parcels.parcel_id → user_id → users.member_id` — then reuses
+`evaluation.py` to print a per-platform `correct / accept / false_accept` table.
+Rows with an unlinkable (arbitrary production) filename stay unscored until a human
+backfills them. Live-verified end-to-end: `parcel_2671147.jpg` sent through the
+endpoint read `968690` (correct, routed to `manual`/`db_scan` — no marker), the
+backfill linked its ground truth and scored it `1/1 correct, 0 false-accept`;
+re-running backfilled 0 (idempotent). Run: `python backfill_gt.py`.
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,
