@@ -1,5 +1,6 @@
 modal
 psycopg[binary]
+psycopg-pool
 python-dotenv
 pytest
 fastapi[standard]

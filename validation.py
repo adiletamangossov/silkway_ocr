@@ -71,25 +71,16 @@ class SqliteUserIDStore(UserIDStore):
 
 class PostgresUserIDStore(UserIDStore):
     # the real client database. member ids live in users.member_id as text, so
-    # the OCR string is compared directly with no cast. connection settings come
-    # from separate env vars; no credentials are ever hardcoded.
-    def __init__(self):
-        self.conn_kwargs = {
-            "host": os.environ["DB_HOST"],
-            "port": os.environ.get("DB_PORT", "4444"),
-            "user": os.environ["DB_USER"],
-            "password": os.environ["DB_PASSWORD"],
-            "dbname": os.environ["DB_NAME"],
-        }
-
+    # the OCR string is compared directly with no cast. connections come from the
+    # shared pool (db.connection); no credentials are ever hardcoded.
     def exists(self, user_id: str) -> bool:
-        # imported lazily so this module loads even where psycopg isn't present
-        # (e.g. the offline test run that only uses the sqlite stub).
-        import psycopg
+        # imported lazily so this module loads even where the pool / psycopg isn't
+        # present (e.g. the offline test run that only uses the sqlite stub).
+        from db import connection
 
         # parameterized query: the value is bound by the driver, never string-
         # formatted into the sql, so a malicious transcript can't inject.
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT 1 FROM users WHERE member_id = %s LIMIT 1", (user_id,)
@@ -99,11 +90,11 @@ class PostgresUserIDStore(UserIDStore):
     def find_matching(self, like_patterns: list[str]) -> list[str]:
         if not like_patterns:
             return []
-        import psycopg
+        from db import connection
 
         # LIKE ANY(array) matches member_id against every pattern in one round
         # trip; psycopg binds the list as a postgres text array, no string-building.
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT member_id FROM users WHERE member_id LIKE ANY(%s)",

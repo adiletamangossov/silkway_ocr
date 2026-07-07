@@ -145,19 +145,11 @@ class SqliteManualQueue(ManualQueue):
 class PostgresManualQueue(ManualQueue):
     # production queue: a dedicated ocr_manual_queue table in the same database.
     # additive (CREATE TABLE IF NOT EXISTS); users and cargo_parcels are untouched.
-    def __init__(self):
-        self.conn_kwargs = {
-            "host": os.environ["DB_HOST"],
-            "port": os.environ.get("DB_PORT", "4444"),
-            "user": os.environ["DB_USER"],
-            "password": os.environ["DB_PASSWORD"],
-            "dbname": os.environ["DB_NAME"],
-        }
-
+    # connections come from the shared pool (db.connection); no creds in code.
     def ensure_schema(self) -> None:
-        import psycopg
+        from db import connection
 
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -187,12 +179,13 @@ class PostgresManualQueue(ManualQueue):
                 )
 
     def enqueue(self, parcel_id, photo, decision, transcript=None, image_url=None) -> int:
-        import psycopg
         from psycopg.types.json import Jsonb
+
+        from db import connection
 
         r = _queue_row(parcel_id, photo, decision, transcript, image_url)
         candidates = Jsonb(r["candidates"]) if r["candidates"] is not None else None
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -210,10 +203,11 @@ class PostgresManualQueue(ManualQueue):
                 return cur.fetchone()[0]
 
     def list_pending(self) -> list[dict]:
-        import psycopg
         from psycopg.rows import dict_row
 
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        from db import connection
+
+        with connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     "SELECT * FROM ocr_manual_queue WHERE status = 'pending' ORDER BY id"
@@ -221,10 +215,11 @@ class PostgresManualQueue(ManualQueue):
                 return cur.fetchall()
 
     def resolve(self, item_id, member_id, resolved_by=None) -> dict | None:
-        import psycopg
         from psycopg.rows import dict_row
 
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        from db import connection
+
+        with connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
                     """

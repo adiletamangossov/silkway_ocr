@@ -130,21 +130,12 @@ class SqliteDecisionSink(DecisionSink):
 class PostgresDecisionSink(DecisionSink):
     # production sink: writes to an ocr_decisions table in the same database the
     # validator already reads. the table is dedicated to this app and only ever
-    # created/inserted into — users and cargo_parcels are never touched. connection
-    # settings come from the same env vars as PostgresUserIDStore; no creds in code.
-    def __init__(self):
-        self.conn_kwargs = {
-            "host": os.environ["DB_HOST"],
-            "port": os.environ.get("DB_PORT", "4444"),
-            "user": os.environ["DB_USER"],
-            "password": os.environ["DB_PASSWORD"],
-            "dbname": os.environ["DB_NAME"],
-        }
-
+    # created/inserted into — users and cargo_parcels are never touched. connections
+    # come from the shared pool (db.connection); no credentials in code.
     def ensure_schema(self) -> None:
-        import psycopg
+        from db import connection
 
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -167,12 +158,13 @@ class PostgresDecisionSink(DecisionSink):
                 )
 
     def log_decision(self, photo, transcript, decision, platform=None, corrected_id=None):
-        import psycopg
         from psycopg.types.json import Jsonb
+
+        from db import connection
 
         r = _row(photo, transcript, decision, platform, corrected_id)
         candidates = Jsonb(r["candidates"]) if r["candidates"] is not None else None
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -189,10 +181,11 @@ class PostgresDecisionSink(DecisionSink):
                 )
 
     def read_decisions(self) -> list[dict]:
-        import psycopg
         from psycopg.rows import dict_row
 
-        with psycopg.connect(**self.conn_kwargs) as conn:
+        from db import connection
+
+        with connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute("SELECT * FROM ocr_decisions ORDER BY id")
                 return cur.fetchall()

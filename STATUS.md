@@ -206,6 +206,20 @@ token as a bearer header **or** a `?token=` query param, so `/docs?token=…` st
 opens in a browser (Swagger's schema fetch carries the token forward). Open when
 no token is configured (dev). Verified live: no token → 401, `?token=` → 200.
 
+**Connection pooling (`db.py`, 2026-07-07).** Every Postgres store used to open a
+fresh connection (+ TLS handshake) per query — fine for a one-off script, wasteful
+for the long-running services. `db.py` holds a process-wide, lazily-created
+`psycopg_pool.ConnectionPool` (`min_size=1`, `max_size` via `DB_POOL_MAX`, default
+5) exposed as a `connection()` context manager with the same commit-on-exit
+semantics. `PostgresUserIDStore`, `PostgresDecisionSink`, `PostgresManualQueue`,
+and the backend's parcel-writer all route through it; the one-off scripts
+(`build_db_eval`, `backfill_gt`, `integration_example`) keep their own single
+connection. The pool imports psycopg-pool lazily, so the sqlite stubs and unit
+tests stay dependency-free (80 tests still pass). Verified live: 6 store queries
+served by the pool reused 2 connections (was 6 reconnects); the redeployed OCR
+endpoint resolves through the in-container pool. `psycopg-pool` added to
+requirements and the Modal `web_image`.
+
 **Specialist review UI (`specialist_ui.html`, 2026-07-07).** A self-contained
 page (no external deps, light/dark, mobile-friendly) served open at `GET /` — the
 shell is public; the data it loads is behind the token. The specialist enters

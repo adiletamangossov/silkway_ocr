@@ -121,8 +121,8 @@ class QwenOCR:
 # torch install so the GPU image cache is untouched. our pure-python parsing and
 # validation modules are shipped into the container so resolve_member_id can run.
 web_image = (
-    image.pip_install("psycopg[binary]", "fastapi[standard]")
-    .add_local_python_source("extraction", "validation", "decision_sink")
+    image.pip_install("psycopg[binary]", "psycopg-pool", "fastapi[standard]")
+    .add_local_python_source("extraction", "validation", "decision_sink", "db")
 )
 
 # db credentials + the endpoint bearer token, kept out of code in a Modal secret.

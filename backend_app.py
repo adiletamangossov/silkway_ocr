@@ -100,24 +100,16 @@ def get_recognizer():
 
 def get_parcel_writer():
     # writes the accepted / resolved member_id onto the parcel. dedicated column,
-    # so the client record (users) is never touched.
-    import psycopg
+    # so the client record (users) is never touched. uses the shared pool.
+    from db import connection
 
     def _write(parcel_id, member_id: str) -> None:
-        conn_kwargs = {
-            "host": os.environ["DB_HOST"],
-            "port": os.environ.get("DB_PORT", "4444"),
-            "user": os.environ["DB_USER"],
-            "password": os.environ["DB_PASSWORD"],
-            "dbname": os.environ["DB_NAME"],
-        }
-        with psycopg.connect(**conn_kwargs) as conn:
+        with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE cargo_parcels SET found_member_id = %s WHERE parcel_id = %s",
                     (member_id, parcel_id),
                 )
-            conn.commit()
 
     return _write
 
