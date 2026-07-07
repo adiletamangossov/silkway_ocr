@@ -122,3 +122,23 @@ def test_auth_enforced_when_token_configured(client, monkeypatch):
 def test_health_stays_open_with_token_configured(client, monkeypatch):
     monkeypatch.setenv("BACKEND_API_TOKEN", "s3cret")
     assert client.get("/health").status_code == 200
+
+
+def test_specialist_ui_served_open(client, monkeypatch):
+    # the page shell is public (the data it loads is token-gated); it must serve
+    # even when auth is configured, and be html.
+    monkeypatch.setenv("BACKEND_API_TOKEN", "s3cret")
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Manual Review" in resp.text
+
+
+def test_image_url_is_stored_and_listed(client):
+    client.post(
+        "/parcels/777/recognize",
+        files=_upload(b"manual"),
+        data={"image_url": "https://cdn.example/parcel_777.jpg"},
+    )
+    pending = client.get("/manual-queue").json()["pending"]
+    assert pending[0]["image_url"] == "https://cdn.example/parcel_777.jpg"

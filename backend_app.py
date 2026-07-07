@@ -22,6 +22,7 @@ import os
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import HTMLResponse
 
 # env for the db writer + the OCR client (endpoint url / token). loaded at import
 # so `uvicorn backend_app:app` picks it up; harmless when imported by tests.
@@ -34,6 +35,12 @@ app = FastAPI(
     title="SilkWay parcel backend",
     summary="Read a parcel's member_id via the OCR service; auto-accept or queue.",
 )
+
+# the specialist review page, served as-is at GET /. read once at import; it is a
+# static shell that fetches queue data from the api with the specialist's token.
+_UI_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "specialist_ui.html")
+with open(_UI_PATH, encoding="utf-8") as _f:
+    _UI_HTML = _f.read()
 
 
 # --- auth -----------------------------------------------------------------------
@@ -101,6 +108,13 @@ def get_parcel_writer():
 # --- routes ---------------------------------------------------------------------
 
 
+@app.get("/", response_class=HTMLResponse)
+def specialist_ui():
+    # open: this is just the app shell (html/js). the data it loads is behind the
+    # bearer token, which the specialist enters in the page.
+    return _UI_HTML
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -110,6 +124,7 @@ def health():
 async def recognize_parcel(
     parcel_id: int,
     file: UploadFile = File(...),
+    image_url: str | None = Form(default=None),
     queue=Depends(get_queue),
     recognizer=Depends(get_recognizer),
     write_parcel=Depends(get_parcel_writer),
@@ -127,8 +142,10 @@ async def recognize_parcel(
                 "member_id": decision["member_id"], "decision": decision}
 
     # a guess (or nothing): a human decides. queue it with the guess pre-filled.
+    # image_url (optional) is stored so the review UI can show the actual photo.
     queue_id = queue.enqueue(
-        parcel_id, file.filename, decision, transcript=decision.get("transcript")
+        parcel_id, file.filename, decision,
+        transcript=decision.get("transcript"), image_url=image_url,
     )
     return {"action": "queued", "parcel_id": parcel_id, "queue_id": queue_id,
             "decision": decision}

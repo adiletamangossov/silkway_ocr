@@ -201,6 +201,20 @@ any real deployment**); it's the backend's own token, separate from the OCR
 endpoint's `API_TOKEN`. Verified live against the real Postgres queue: no/wrong
 token → 401, correct token → 200, `/health` open (2 auth tests; 76 total).
 
+**Specialist review UI (`specialist_ui.html`, 2026-07-07).** A self-contained
+page (no external deps, light/dark, mobile-friendly) served open at `GET /` — the
+shell is public; the data it loads is behind the token. The specialist enters
+their name + access token (persisted in localStorage), the page lists pending
+items from `GET /manual-queue`, and each card shows the parcel photo (via the new
+`image_url`), the OCR guess pre-filled in an editable field, candidate chips
+(click to fill), the reason, and the OCR transcript (collapsible). Confirm →
+`POST /manual-queue/{id}/resolve` (with `resolved_by`), then the card drops out.
+To feed the photo, the queue gained an `image_url` column (additive: CREATE plus
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, applied to the live table) and
+`POST /parcels/{id}/recognize` takes an optional `image_url` form field. Verified
+live end to end against the real Postgres queue (seeded → listed with image_url →
+deleted); 2 new tests (78 total).
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,

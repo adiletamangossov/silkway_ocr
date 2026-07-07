@@ -12,12 +12,15 @@ import os
 #   resolve  -> status 'resolved', records the specialist's verified member_id
 
 
-def _queue_row(parcel_id, photo, decision: dict, transcript: str | None) -> dict:
+def _queue_row(parcel_id, photo, decision: dict, transcript: str | None, image_url=None) -> dict:
     # flatten one manual decision into the columns a queue row stores. pure, so both
-    # implementations share it and it is unit-testable.
+    # implementations share it and it is unit-testable. image_url (when the caller
+    # has one, e.g. the parcel's cargo_parcels.images[1]) lets the specialist UI show
+    # the actual photo next to the guess.
     return {
         "parcel_id": str(parcel_id),
         "photo": photo,
+        "image_url": image_url,
         "prefill_member_id": decision.get("member_id"),
         "candidates": decision.get("candidates"),
         "confidence": decision.get("confidence"),
@@ -31,7 +34,8 @@ class ManualQueue:
     def ensure_schema(self) -> None:
         raise NotImplementedError
 
-    def enqueue(self, parcel_id, photo, decision: dict, transcript: str | None = None) -> int:
+    def enqueue(self, parcel_id, photo, decision: dict, transcript: str | None = None,
+                image_url: str | None = None) -> int:
         # add a pending item; return its queue id.
         raise NotImplementedError
 
@@ -62,6 +66,7 @@ class SqliteManualQueue(ManualQueue):
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     parcel_id TEXT NOT NULL,
                     photo TEXT,
+                    image_url TEXT,
                     prefill_member_id TEXT,
                     candidates TEXT,
                     confidence TEXT,
@@ -76,22 +81,22 @@ class SqliteManualQueue(ManualQueue):
                 """
             )
 
-    def enqueue(self, parcel_id, photo, decision, transcript=None) -> int:
+    def enqueue(self, parcel_id, photo, decision, transcript=None, image_url=None) -> int:
         import sqlite3
 
-        r = _queue_row(parcel_id, photo, decision, transcript)
+        r = _queue_row(parcel_id, photo, decision, transcript, image_url)
         candidates = json.dumps(r["candidates"], ensure_ascii=False) if r["candidates"] else None
         with sqlite3.connect(self.db_path) as conn:
             cur = conn.execute(
                 """
                 INSERT INTO ocr_manual_queue
-                    (parcel_id, photo, prefill_member_id, candidates, confidence,
-                     source, reason, transcript)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (parcel_id, photo, image_url, prefill_member_id, candidates,
+                     confidence, source, reason, transcript)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    r["parcel_id"], r["photo"], r["prefill_member_id"], candidates,
-                    r["confidence"], r["source"], r["reason"], r["transcript"],
+                    r["parcel_id"], r["photo"], r["image_url"], r["prefill_member_id"],
+                    candidates, r["confidence"], r["source"], r["reason"], r["transcript"],
                 ),
             )
             return cur.lastrowid
@@ -161,6 +166,7 @@ class PostgresManualQueue(ManualQueue):
                         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                         parcel_id TEXT NOT NULL,
                         photo TEXT,
+                        image_url TEXT,
                         prefill_member_id TEXT,
                         candidates JSONB,
                         confidence TEXT,
@@ -174,26 +180,31 @@ class PostgresManualQueue(ManualQueue):
                     )
                     """
                 )
+                # upgrade a table created before image_url existed (the live table was
+                # already created once). additive and idempotent.
+                cur.execute(
+                    "ALTER TABLE ocr_manual_queue ADD COLUMN IF NOT EXISTS image_url TEXT"
+                )
 
-    def enqueue(self, parcel_id, photo, decision, transcript=None) -> int:
+    def enqueue(self, parcel_id, photo, decision, transcript=None, image_url=None) -> int:
         import psycopg
         from psycopg.types.json import Jsonb
 
-        r = _queue_row(parcel_id, photo, decision, transcript)
+        r = _queue_row(parcel_id, photo, decision, transcript, image_url)
         candidates = Jsonb(r["candidates"]) if r["candidates"] is not None else None
         with psycopg.connect(**self.conn_kwargs) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO ocr_manual_queue
-                        (parcel_id, photo, prefill_member_id, candidates, confidence,
-                         source, reason, transcript)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        (parcel_id, photo, image_url, prefill_member_id, candidates,
+                         confidence, source, reason, transcript)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
-                        r["parcel_id"], r["photo"], r["prefill_member_id"], candidates,
-                        r["confidence"], r["source"], r["reason"], r["transcript"],
+                        r["parcel_id"], r["photo"], r["image_url"], r["prefill_member_id"],
+                        candidates, r["confidence"], r["source"], r["reason"], r["transcript"],
                     ),
                 )
                 return cur.fetchone()[0]
