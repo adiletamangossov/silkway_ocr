@@ -120,6 +120,19 @@ holds the db creds + `API_TOKEN`). Verified end-to-end through the live URL:
 `960662` (source marker, high); `problem_photo.jpg` (no id) → `manual` None — the
 never-false-accept invariant holds over HTTP.
 
+**Durable decision logging (2026-07-07).** The container filesystem is ephemeral,
+so the endpoint writes every decision to an `ocr_decisions` table in the *same*
+Postgres (`decision_sink.py:PostgresDecisionSink`; additive `CREATE TABLE IF NOT
+EXISTS`, never touches `users`/`cargo_parcels`). One row per request: photo,
+platform (optional `/recognize` form field), transcript, the flattened decision
+(status/member_id/confidence/source/reason), full decision as JSONB, and
+`corrected_id` (NULL now, backfilled from the manual queue later). Logging is
+best-effort (never fails the request) and the resolve+insert run in a worker
+thread so concurrent requests don't serialize on the db. Live-verified: a
+`/recognize` call landed row `id 1` in `ocr_decisions`. This is the sink that
+turns real traffic into the labeled per-platform eval set the project still
+needs. `SqliteDecisionSink` mirrors it for offline tests.
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,

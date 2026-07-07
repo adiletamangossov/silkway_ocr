@@ -122,7 +122,7 @@ class QwenOCR:
 # validation modules are shipped into the container so resolve_member_id can run.
 web_image = (
     image.pip_install("psycopg[binary]", "fastapi[standard]")
-    .add_local_python_source("extraction", "validation")
+    .add_local_python_source("extraction", "validation", "decision_sink")
 )
 
 # db credentials + the endpoint bearer token, kept out of code in a Modal secret.
@@ -140,17 +140,29 @@ db_secret = modal.Secret.from_name("silkway-secrets")
 @modal.concurrent(max_inputs=100)  # one CPU container fields many requests at once
 @modal.asgi_app()
 def web():
+    import asyncio
     import os
 
-    from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+    from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 
     # imported here (in the container), where the modules and psycopg exist.
     from validation import PostgresUserIDStore, resolve_member_id
+    from decision_sink import PostgresDecisionSink
 
     api = FastAPI(
         title="SilkWay OCR",
         summary="Read a client's member_id off a courier-sticker photo.",
     )
+
+    # durable log of every decision, written to an ocr_decisions table in the same
+    # db (the container filesystem is ephemeral, so a file log would not survive).
+    # create the table once at container start; best-effort so a transient db hiccup
+    # here never stops the endpoint from serving.
+    sink = PostgresDecisionSink()
+    try:
+        sink.ensure_schema()
+    except Exception as e:  # noqa: BLE001
+        print(f"ocr_decisions schema init failed (non-fatal): {e}")
 
     def require_token(authorization: str | None):
         # enforce the bearer token only when one is configured, so a first deploy
@@ -167,6 +179,7 @@ def web():
     @api.post("/recognize")
     async def recognize(
         file: UploadFile = File(...),
+        platform: str | None = Form(default=None),
         authorization: str | None = Header(default=None),
     ):
         require_token(authorization)
@@ -176,10 +189,25 @@ def web():
             raise HTTPException(status_code=400, detail="empty image file")
 
         # transcribe on the GPU container — .aio so this async request handler does
-        # not block the event loop while the model runs. then resolve the member_id
-        # against the live db; the db lookup is the confidence signal, not the model.
+        # not block the event loop while the model runs.
         transcript = await QwenOCR().transcribe.remote.aio(image_bytes, TRANSCRIBE_PROMPT)
-        decision = resolve_member_id(transcript, PostgresUserIDStore())
+
+        def resolve_and_log():
+            # resolve the member_id against the live db (the db lookup is the
+            # confidence signal, not the model), then record the decision. both are
+            # blocking psycopg calls, so this runs in a worker thread — see below.
+            decision = resolve_member_id(transcript, PostgresUserIDStore())
+            try:
+                # corrected_id is unknown now; a human backfills it from the manual
+                # queue later. logging is best-effort: never fail the request over it.
+                sink.log_decision(file.filename, transcript, decision, platform=platform)
+            except Exception as e:  # noqa: BLE001
+                print(f"decision log failed (non-fatal): {e}")
+            return decision
+
+        # offload the blocking db work off the event loop so concurrent requests
+        # (max_inputs above) are not serialized behind each other's db round trips.
+        decision = await asyncio.to_thread(resolve_and_log)
 
         # the full resolver decision (status / member_id / confidence / source /
         # reason / candidates) plus the raw transcript, which the manual queue and
