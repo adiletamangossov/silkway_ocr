@@ -160,6 +160,17 @@ both returned `accept` `960662` for `image_silkway.jpeg`; a wrong token surfaced
 `RuntimeError: endpoint returned HTTP 401 ...`. `_encode_multipart` is pure and
 unit-tested (4 tests). `.env.example` documents the two new client vars.
 
+**Backend integration reference (`integration_example.py`).** A sketch to adapt
+into the parcel backend (not part of the deployed service). Per parcel: download
+the photo → `client.recognize(bytes, filename=f"parcel_<id>.jpg")` → branch on the
+decision. `accept` → write the db-confirmed `member_id` to
+`cargo_parcels.found_member_id` (dedicated column; never touches `users`);
+`manual` → `enqueue_manual()` stub hands it to the specialist queue with the guess
+prefilled + any candidates. Naming the upload `parcel_<id>.jpg` makes those calls
+auto-scoreable by `backfill_gt.py` later. Writes are OFF by default (dry run);
+`--commit` enables the `found_member_id` write. Live dry-run over 2 real parcels
+exercised the fetch → recognize → manual-queue path with no db writes.
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,
