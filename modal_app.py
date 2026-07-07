@@ -103,6 +103,92 @@ class QwenOCR:
         return text.strip()
 
 
+# ---------------------------------------------------------------------------
+# HTTP endpoint
+# ---------------------------------------------------------------------------
+# A deployed web service: POST a courier-sticker photo, get the resolved
+# member_id back. Runs the whole pipeline in the cloud so the caller makes one
+# call and receives the final decision — transcribe on the GPU container above,
+# then resolve against the live client db right here.
+#
+# This is a separate CPU function, not a method on QwenOCR, on purpose: the GPU
+# container (and its image) stay exactly as they are, so the existing local
+# entrypoints and the deployed model are unaffected. The web layer scales to
+# zero and only forwards image bytes to the GPU over Modal's internal network.
+
+# the web layer needs psycopg (db validation now runs in-cloud, not on a laptop)
+# and fastapi (the endpoint + multipart upload). added in a layer AFTER the heavy
+# torch install so the GPU image cache is untouched. our pure-python parsing and
+# validation modules are shipped into the container so resolve_member_id can run.
+web_image = (
+    image.pip_install("psycopg[binary]", "fastapi[standard]")
+    .add_local_python_source("extraction", "validation")
+)
+
+# db credentials + the endpoint bearer token, kept out of code in a Modal secret.
+# create it once against your account:
+#   modal secret create silkway-secrets \
+#     DB_HOST=... DB_PORT=4444 DB_USER=... DB_PASSWORD=... DB_NAME=... API_TOKEN=...
+# the local entrypoints below still read the same values from .env; only the
+# deployed endpoint reads them from this secret. API_TOKEN is optional — if it is
+# absent the endpoint runs open (fine behind a private gateway); if present, every
+# request must carry `Authorization: Bearer <token>`.
+db_secret = modal.Secret.from_name("silkway-secrets")
+
+
+@app.function(image=web_image, secrets=[db_secret], timeout=600)
+@modal.concurrent(max_inputs=100)  # one CPU container fields many requests at once
+@modal.asgi_app()
+def web():
+    import os
+
+    from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+
+    # imported here (in the container), where the modules and psycopg exist.
+    from validation import PostgresUserIDStore, resolve_member_id
+
+    api = FastAPI(
+        title="SilkWay OCR",
+        summary="Read a client's member_id off a courier-sticker photo.",
+    )
+
+    def require_token(authorization: str | None):
+        # enforce the bearer token only when one is configured, so a first deploy
+        # works before you wire up API_TOKEN. once set, it is mandatory.
+        expected = os.environ.get("API_TOKEN")
+        if expected and authorization != f"Bearer {expected}":
+            raise HTTPException(status_code=401, detail="missing or invalid bearer token")
+
+    @api.get("/health")
+    def health():
+        # cheap liveness check that never touches the gpu.
+        return {"status": "ok", "model": MODEL_ID}
+
+    @api.post("/recognize")
+    async def recognize(
+        file: UploadFile = File(...),
+        authorization: str | None = Header(default=None),
+    ):
+        require_token(authorization)
+
+        image_bytes = await file.read()
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="empty image file")
+
+        # transcribe on the GPU container — .aio so this async request handler does
+        # not block the event loop while the model runs. then resolve the member_id
+        # against the live db; the db lookup is the confidence signal, not the model.
+        transcript = await QwenOCR().transcribe.remote.aio(image_bytes, TRANSCRIBE_PROMPT)
+        decision = resolve_member_id(transcript, PostgresUserIDStore())
+
+        # the full resolver decision (status / member_id / confidence / source /
+        # reason / candidates) plus the raw transcript, which the manual queue and
+        # any later audit both want to see.
+        return {"transcript": transcript, **decision}
+
+    return api
+
+
 # lets us test from the terminal:
 #   modal run modal_app.py --image-path label.jpg [--platform taobao]
 @app.local_entrypoint()

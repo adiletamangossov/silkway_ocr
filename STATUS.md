@@ -75,6 +75,51 @@ preprocessing**; the real lever stays high-visibility capture at source.
 Crop left off: at mean-luminance ~12/255 the sticker isn't the brightest region,
 so threshold-crop can't isolate it (would risk cropping out the id).
 
+## HTTP endpoint (send a photo → get the member_id)
+
+`modal_app.py::web` is a deployed FastAPI service that runs the **whole pipeline
+in the cloud**: POST a photo → GPU transcribe → Postgres `resolve_member_id` →
+JSON decision back. One call, final answer. It is a separate CPU function (scales
+to zero) that forwards image bytes to the existing `QwenOCR` GPU class over
+Modal's internal network — the GPU class and its image are unchanged, so the
+model deploy and the local entrypoints are unaffected.
+
+**One-time setup** — put the db creds + a bearer token in a Modal secret (the
+local entrypoints keep using `.env`; only the endpoint reads this):
+
+```
+modal secret create silkway-secrets \
+  DB_HOST=... DB_PORT=4444 DB_USER=... DB_PASSWORD=... DB_NAME=... API_TOKEN=<pick-one>
+```
+
+`API_TOKEN` is optional: absent → endpoint runs open (fine behind a private
+gateway); present → every request needs `Authorization: Bearer <token>`.
+
+**Deploy:** `modal deploy modal_app.py` → prints the URL for `web`.
+
+**Call it:**
+```
+curl -X POST https://<you>--silkway-ocr-web.modal.run/recognize \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@label.jpg"
+```
+
+Response = the full resolver decision plus the raw transcript:
+```json
+{"transcript": "...首都波960662号...", "status": "accept", "member_id": "960662",
+ "confidence": "high", "source": "marker", "reason": "marker match confirmed in db"}
+```
+`status` is `accept` (auto) or `manual` (queue, `member_id` pre-filled when we
+have a guess, `candidates` listed when ambiguous). `GET /health` is a gpu-free
+liveness check; `/docs` serves the OpenAPI UI.
+
+**Deployed & live-validated (2026-07-07)** at
+`https://adilet-amangossov--silkway-ocr-web.modal.run` (secret `silkway-secrets`
+holds the db creds + `API_TOKEN`). Verified end-to-end through the live URL:
+`/health` ok; tokenless `/recognize` → 401; `image_silkway.jpeg` → `accept`
+`960662` (source marker, high); `problem_photo.jpg` (no id) → `manual` None — the
+never-false-accept invariant holds over HTTP.
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,
