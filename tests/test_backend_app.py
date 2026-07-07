@@ -134,6 +134,30 @@ def test_specialist_ui_served_open(client, monkeypatch):
     assert "Manual Review" in resp.text
 
 
+def test_docs_open_when_no_token_configured(client):
+    # local dev (no BACKEND_API_TOKEN): docs and schema are reachable.
+    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/docs").status_code == 200
+
+
+def test_docs_gated_when_token_configured(client, monkeypatch):
+    monkeypatch.setenv("BACKEND_API_TOKEN", "s3cret")
+
+    # not public anymore
+    assert client.get("/openapi.json").status_code == 401
+    assert client.get("/docs").status_code == 401
+    assert client.get("/redoc").status_code == 401
+
+    # reachable with the token as a query param (browser) ...
+    assert client.get("/openapi.json?token=s3cret").status_code == 200
+    docs = client.get("/docs?token=s3cret")
+    assert docs.status_code == 200
+    # ... and the docs page points swagger at the token-carrying schema url
+    assert "openapi.json?token=s3cret" in docs.text
+    # ... or with a bearer header (api client)
+    assert client.get("/openapi.json", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+
+
 def test_image_url_is_stored_and_listed(client):
     client.post(
         "/parcels/777/recognize",

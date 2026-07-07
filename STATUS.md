@@ -199,7 +199,12 @@ tests). The Postgres `ocr_manual_queue` table was created + verified live.
 Enforced only when `BACKEND_API_TOKEN` is set (open for local dev — **set it in
 any real deployment**); it's the backend's own token, separate from the OCR
 endpoint's `API_TOKEN`. Verified live against the real Postgres queue: no/wrong
-token → 401, correct token → 200, `/health` open (2 auth tests; 76 total).
+token → 401, correct token → 200, `/health` open (2 auth tests; 76 total). The
+API docs (`/docs`, `/redoc`, `/openapi.json`) are gated too (built-ins disabled,
+re-added behind `require_docs_auth`) so the schema isn't public; they accept the
+token as a bearer header **or** a `?token=` query param, so `/docs?token=…` still
+opens in a browser (Swagger's schema fetch carries the token forward). Open when
+no token is configured (dev). Verified live: no token → 401, `?token=` → 200.
 
 **Specialist review UI (`specialist_ui.html`, 2026-07-07).** A self-contained
 page (no external deps, light/dark, mobile-friendly) served open at `GET /` — the

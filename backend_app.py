@@ -22,6 +22,7 @@ import os
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 
 # env for the db writer + the OCR client (endpoint url / token). loaded at import
@@ -31,9 +32,12 @@ load_dotenv()
 from client import recognize
 from manual_queue import PostgresManualQueue
 
+# disable the built-in open docs; we re-add them below behind the token so the api
+# schema is not public. (title/summary still drive the generated schema.)
 app = FastAPI(
     title="SilkWay parcel backend",
     summary="Read a parcel's member_id via the OCR service; auto-accept or queue.",
+    docs_url=None, redoc_url=None, openapi_url=None,
 )
 
 # the specialist review page, served as-is at GET /. read once at import; it is a
@@ -54,6 +58,19 @@ def require_auth(authorization: str | None = Header(default=None)):
     expected = os.environ.get("BACKEND_API_TOKEN")
     if expected and authorization != f"Bearer {expected}":
         raise HTTPException(status_code=401, detail="missing or invalid bearer token")
+
+
+def require_docs_auth(authorization: str | None = Header(default=None), token: str | None = None):
+    # gate the api docs behind the same token, but also accept it as a ?token= query
+    # param so the docs are still openable in a browser (a plain navigation can't set
+    # an Authorization header). returns the token so the /docs route can pass it on to
+    # the openapi.json fetch. open when no token is configured (local dev).
+    expected = os.environ.get("BACKEND_API_TOKEN")
+    if not expected:
+        return None
+    if authorization == f"Bearer {expected}" or token == expected:
+        return expected
+    raise HTTPException(status_code=401, detail="missing or invalid token")
 
 
 # --- dependencies (overridden in tests) -----------------------------------------
@@ -118,6 +135,29 @@ def specialist_ui():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# --- api docs, gated behind the token (see require_docs_auth) --------------------
+
+
+@app.get("/openapi.json", include_in_schema=False)
+def openapi(_tok=Depends(require_docs_auth)):
+    return app.openapi()
+
+
+def _openapi_url(tok: str | None) -> str:
+    # let the docs page reach the (also-gated) schema by carrying the token forward.
+    return "openapi.json" + (f"?token={tok}" if tok else "")
+
+
+@app.get("/docs", include_in_schema=False)
+def swagger_docs(tok=Depends(require_docs_auth)):
+    return get_swagger_ui_html(openapi_url=_openapi_url(tok), title=f"{app.title} — docs")
+
+
+@app.get("/redoc", include_in_schema=False)
+def redoc_docs(tok=Depends(require_docs_auth)):
+    return get_redoc_html(openapi_url=_openapi_url(tok), title=f"{app.title} — docs")
 
 
 @app.post("/parcels/{parcel_id}/recognize", dependencies=[Depends(require_auth)])
