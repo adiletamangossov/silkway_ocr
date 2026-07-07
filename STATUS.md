@@ -145,6 +145,21 @@ endpoint read `968690` (correct, routed to `manual`/`db_scan` — no marker), th
 backfill linked its ground truth and scored it `1/1 correct, 0 false-accept`;
 re-running backfilled 0 (idempotent). Run: `python backfill_gt.py`.
 
+## Client (`client.py`)
+
+The caller a parcel backend imports, or a person runs from the terminal.
+Zero third-party deps (stdlib `urllib` + a hand-rolled multipart encoder), so it
+drops into any backend. `recognize(image, platform=None) -> decision` takes a path
+or raw bytes; the CLI is `python client.py label.jpg [--platform taobao]`.
+Endpoint URL + bearer token come from the environment (`OCR_ENDPOINT_URL`,
+`API_TOKEN`; the CLI loads `.env`), so the token stays server-side, never in code.
+A non-200 raises `RuntimeError` carrying the server's error body.
+
+Live-verified against the deployed endpoint: CLI and the imported `recognize()`
+both returned `accept` `960662` for `image_silkway.jpeg`; a wrong token surfaced
+`RuntimeError: endpoint returned HTTP 401 ...`. `_encode_multipart` is pure and
+unit-tested (4 tests). `.env.example` documents the two new client vars.
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,
