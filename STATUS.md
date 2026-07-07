@@ -194,6 +194,13 @@ routing is unit-tested with stubs via `TestClient` — no Modal, no prod db (11 
 tests). The Postgres `ocr_manual_queue` table was created + verified live.
 `fastapi[standard]` added to requirements. Run: `uvicorn backend_app:app --reload`.
 
+**Auth (2026-07-07).** The three data routes require `Authorization: Bearer
+<BACKEND_API_TOKEN>` via a `require_auth` dependency; `/health` stays open.
+Enforced only when `BACKEND_API_TOKEN` is set (open for local dev — **set it in
+any real deployment**); it's the backend's own token, separate from the OCR
+endpoint's `API_TOKEN`. Verified live against the real Postgres queue: no/wrong
+token → 401, correct token → 200, `/health` open (2 auth tests; 76 total).
+
 ## Shipped & live-validated
 
 - **Modal app `silkway-ocr` deployed** — Qwen3-VL-8B, weights in a `modal.Volume`,

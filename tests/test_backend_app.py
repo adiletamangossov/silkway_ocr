@@ -8,7 +8,12 @@ from manual_queue import SqliteManualQueue
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    # default the auth OFF for routing tests, regardless of any BACKEND_API_TOKEN a
+    # local .env set (backend_app.load_dotenv runs at import). the auth tests below
+    # opt back in with monkeypatch.setenv, which runs after this fixture.
+    monkeypatch.delenv("BACKEND_API_TOKEN", raising=False)
+
     # a real SQLite-backed queue, plus stubbed OCR + parcel-writer so the routing is
     # exercised end to end without Modal or the production db. the recognizer's
     # verdict is driven by the uploaded bytes, so a test picks accept vs manual.
@@ -96,3 +101,24 @@ def test_resolve_unknown_item_404s(client):
 def test_empty_upload_400s(client):
     resp = client.post("/parcels/1/recognize", files=_upload(b""))
     assert resp.status_code == 400
+
+
+def test_auth_enforced_when_token_configured(client, monkeypatch):
+    monkeypatch.setenv("BACKEND_API_TOKEN", "s3cret")
+
+    # no token -> 401
+    assert client.post("/parcels/1/recognize", files=_upload(b"ACCEPT")).status_code == 401
+    # wrong token -> 401
+    bad = {"Authorization": "Bearer nope"}
+    assert client.post("/parcels/1/recognize", files=_upload(b"ACCEPT"), headers=bad).status_code == 401
+    # right token -> 200
+    ok = {"Authorization": "Bearer s3cret"}
+    assert client.post("/parcels/1/recognize", files=_upload(b"ACCEPT"), headers=ok).status_code == 200
+    # the queue list is gated too
+    assert client.get("/manual-queue").status_code == 401
+    assert client.get("/manual-queue", headers=ok).status_code == 200
+
+
+def test_health_stays_open_with_token_configured(client, monkeypatch):
+    monkeypatch.setenv("BACKEND_API_TOKEN", "s3cret")
+    assert client.get("/health").status_code == 200

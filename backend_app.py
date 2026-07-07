@@ -21,7 +21,7 @@ Run:  uvicorn backend_app:app --reload
 import os
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 
 # env for the db writer + the OCR client (endpoint url / token). loaded at import
 # so `uvicorn backend_app:app` picks it up; harmless when imported by tests.
@@ -34,6 +34,19 @@ app = FastAPI(
     title="SilkWay parcel backend",
     summary="Read a parcel's member_id via the OCR service; auto-accept or queue.",
 )
+
+
+# --- auth -----------------------------------------------------------------------
+
+
+def require_auth(authorization: str | None = Header(default=None)):
+    # gate the specialist-facing routes with a bearer token from BACKEND_API_TOKEN.
+    # enforced only when the token is configured, so local dev / tests run open; set
+    # it in every real deployment. this is the internal backend's own token, separate
+    # from the OCR endpoint's API_TOKEN. /health stays open (no dependency).
+    expected = os.environ.get("BACKEND_API_TOKEN")
+    if expected and authorization != f"Bearer {expected}":
+        raise HTTPException(status_code=401, detail="missing or invalid bearer token")
 
 
 # --- dependencies (overridden in tests) -----------------------------------------
@@ -93,7 +106,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/parcels/{parcel_id}/recognize")
+@app.post("/parcels/{parcel_id}/recognize", dependencies=[Depends(require_auth)])
 async def recognize_parcel(
     parcel_id: int,
     file: UploadFile = File(...),
@@ -121,13 +134,13 @@ async def recognize_parcel(
             "decision": decision}
 
 
-@app.get("/manual-queue")
+@app.get("/manual-queue", dependencies=[Depends(require_auth)])
 def manual_queue(queue=Depends(get_queue)):
     # the specialist work list: pending items with the OCR guess + candidates.
     return {"pending": queue.list_pending()}
 
 
-@app.post("/manual-queue/{item_id}/resolve")
+@app.post("/manual-queue/{item_id}/resolve", dependencies=[Depends(require_auth)])
 def resolve_item(
     item_id: int,
     member_id: str = Form(...),
