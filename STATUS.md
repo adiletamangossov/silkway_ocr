@@ -213,7 +213,12 @@ To feed the photo, the queue gained an `image_url` column (additive: CREATE plus
 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, applied to the live table) and
 `POST /parcels/{id}/recognize` takes an optional `image_url` form field. Verified
 live end to end against the real Postgres queue (seeded → listed with image_url →
-deleted); 2 new tests (78 total).
+deleted); 2 new tests (78 total). Visual treatment: blue-biased cool-slate token
+palette (theme-aware via `prefers-color-scheme` + `data-theme` overrides), member
+ids / candidate chips / label digits in a monospace face with `tabular-nums`
+(the product is about reading digits), accent-highlighted marker, and an SVG
+label fallback drawn from the OCR transcript when a photo url is absent OR fails
+to load — which also covers the known CDN-purge case (old image urls 404).
 
 ## Shipped & live-validated
 
