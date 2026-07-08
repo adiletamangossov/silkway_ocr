@@ -4,3 +4,4 @@ psycopg-pool
 python-dotenv
 pytest
 fastapi[standard]
+pillow

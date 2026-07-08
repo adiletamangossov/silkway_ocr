@@ -57,6 +57,8 @@ Two ideas carry the whole design:
 | `decision_sink.py` | Durable `ocr_decisions` log written by the endpoint. |
 | `backfill_gt.py` | Backfill ground truth into `ocr_decisions` and print a per-platform accuracy table. |
 | `build_db_eval.py` | Build a labeled eval set of real photos straight from the production DB. |
+| `analyze_misses.py` | Bucket eval misses (id absent / misread / resolver-missed) — separates capture problems from model/logic problems. |
+| `framing_split.py` | Before/after: split an eval set by whether the id was legibly captured, to quantify the framing lever. |
 | `decision_log.py`, `gt_audit.py`, `evaluation.py` | File-based decision log + offline accuracy audit. |
 | `integration_example.py` | Batch reference for wiring a backend to the endpoint. |
 
