@@ -75,6 +75,35 @@ preprocessing**; the real lever stays high-visibility capture at source.
 Crop left off: at mean-luminance ~12/255 the sticker isn't the brightest region,
 so threshold-crop can't isolate it (would risk cropping out the id).
 
+## Recent-photo eval (50, 2026-07-08)
+
+First `eval_platforms` run on the **newest** parcels (all created 2026-07, freshest
+captures = best proxy for the agreed high-visibility framing), built with
+`build_db_eval.py 50`:
+
+| Metric | **Recent 50** | Old baseline (pre-framing) |
+|---|---|---|
+| Correct read | **30/50 (60%)** | 26/50 (52%) |
+| Auto-accepted | **20/50 (40%)** | 18/50 (36%) |
+| **False-accept** | **1** | 1 |
+
+A modest lift (+8pp correct, +4pp accept), **not** the jump full high-visibility
+framing would give. The lone false-accept is the known fuzzy-marker decoy:
+`parcel_2671738` truth `964556` read as `964506` (single `5→0` misread that is
+itself a real client, marker present → `marker_fuzzy` auto-accept). ~2%, as before.
+
+**Root cause of the misses — dug into the 20 (18 `None` + 1 wrong held + the 1 FA).**
+Of the 18 `None` cases: **13/18 the id digits were never read at all** (no run
+resembling the truth in the transcript — often only the printed courier hotline
+like `95311`/`95720` came through, not the member_id), **5/18 were read one digit
+off** and correctly held (wildcard couldn't disambiguate in the dense range), and
+crucially **0/18 had the true id present-but-missed by the resolver**. So every
+miss is a genuine OCR *read* failure, not a parsing/logic gap — and most (13/18)
+are the id region simply being illegible in the capture, even though the warehouse
+marker/address around it read fine. Confirms the standing conclusion: the lever is
+**capture legibility of the id region at source**, not the model or the resolver.
+The safety invariant held (19/20 wrong outcomes went to manual).
+
 ## HTTP endpoint (send a photo → get the member_id)
 
 `modal_app.py::web` is a deployed FastAPI service that runs the **whole pipeline
