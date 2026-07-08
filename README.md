@@ -109,6 +109,10 @@ curl -X POST https://<workspace>--silkway-ocr-web.modal.run/recognize \
 guess, `candidates` listed when ambiguous). `API_TOKEN` is enforced only when set.
 Every call is logged to the `ocr_decisions` table.
 
+**Integrating from an external backend?** See **[API.md](API.md)** — the full
+request/response reference, result-handling matrix, error codes, cold-start /
+timeout notes, and copy-paste examples (curl, Python, Node.js, PHP).
+
 Or from Python (`client.py`, stdlib-only):
 
 ```python
