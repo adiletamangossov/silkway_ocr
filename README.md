@@ -42,6 +42,8 @@ Two ideas carry the whole design:
 |---|---|
 | `modal_app.py` | The Qwen3-VL GPU class, the `/recognize` HTTP endpoint, and eval entrypoints. |
 | `client.py` | Zero-dependency Python client + CLI for the endpoint. |
+| `auth.py` | Per-integrator bearer-token auth (a named token map; revoke one without affecting others). |
+| `manage_tokens.py` | Add / revoke / list integrator tokens and sync them to the Modal secret. |
 
 **Parcel backend** (FastAPI — the specialist-facing service)
 | File | Purpose |

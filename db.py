@@ -1,3 +1,4 @@
+import atexit
 import os
 from contextlib import contextmanager
 
@@ -43,7 +44,22 @@ def get_pool():
             open=False,
         )
         _pool.open()
+        # close the pool cleanly at interpreter exit. the pool runs a background
+        # worker thread; without this a short-lived script that touched the db can
+        # raise "cannot join thread at interpreter shutdown" during finalization.
+        # harmless for the long-running services (runs only on their shutdown).
+        atexit.register(_close_pool)
     return _pool
+
+
+def _close_pool():
+    global _pool
+    if _pool is not None:
+        try:
+            _pool.close()
+        except Exception:
+            pass
+        _pool = None
 
 
 @contextmanager

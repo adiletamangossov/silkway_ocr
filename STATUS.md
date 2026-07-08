@@ -199,6 +199,16 @@ holds the db creds + `API_TOKEN`). Verified end-to-end through the live URL:
 `960662` (source marker, high); `problem_photo.jpg` (no id) → `manual` None — the
 never-false-accept invariant holds over HTTP.
 
+**Per-integrator API tokens (`auth.py`, 2026-07-08).** The endpoint accepts a map
+of named tokens (`API_TOKENS` JSON in the Modal secret) — each integrator gets its
+own, revocable independently; the legacy single `API_TOKEN` still works as consumer
+`default`. The matched integrator name is logged with each decision (new `consumer`
+column on `ocr_decisions`, additive). `manage_tokens.py add/revoke/list/sync`
+manages the map in `.env` and pushes it to the secret. Live-verified: multiple
+integrator tokens all authorize, a random token → 401, and revoking one integrator
+left the others (and the legacy token) working; consumer recorded as `default` on a
+real call. Comparison is constant-time; open only when nothing is configured (dev).
+
 **Durable decision logging (2026-07-07).** The container filesystem is ephemeral,
 so the endpoint writes every decision to an `ocr_decisions` table in the *same*
 Postgres (`decision_sink.py:PostgresDecisionSink`; additive `CREATE TABLE IF NOT

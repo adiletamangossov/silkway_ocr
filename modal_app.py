@@ -122,7 +122,7 @@ class QwenOCR:
 # validation modules are shipped into the container so resolve_member_id can run.
 web_image = (
     image.pip_install("psycopg[binary]", "psycopg-pool", "fastapi[standard]")
-    .add_local_python_source("extraction", "validation", "decision_sink", "db")
+    .add_local_python_source("extraction", "validation", "decision_sink", "db", "auth")
 )
 
 # db credentials + the endpoint bearer token, kept out of code in a Modal secret.
@@ -148,6 +148,7 @@ def web():
     # imported here (in the container), where the modules and psycopg exist.
     from validation import PostgresUserIDStore, resolve_member_id
     from decision_sink import PostgresDecisionSink
+    from auth import authorize
 
     api = FastAPI(
         title="SilkWay OCR",
@@ -164,13 +165,6 @@ def web():
     except Exception as e:  # noqa: BLE001
         print(f"ocr_decisions schema init failed (non-fatal): {e}")
 
-    def require_token(authorization: str | None):
-        # enforce the bearer token only when one is configured, so a first deploy
-        # works before you wire up API_TOKEN. once set, it is mandatory.
-        expected = os.environ.get("API_TOKEN")
-        if expected and authorization != f"Bearer {expected}":
-            raise HTTPException(status_code=401, detail="missing or invalid bearer token")
-
     @api.get("/health")
     def health():
         # cheap liveness check that never touches the gpu.
@@ -182,7 +176,12 @@ def web():
         platform: str | None = Form(default=None),
         authorization: str | None = Header(default=None),
     ):
-        require_token(authorization)
+        # per-integrator auth: any configured integrator token authorizes; the
+        # matched integrator name is recorded with the decision for auditing.
+        # revoking one integrator never affects the others. open when unconfigured.
+        ok, consumer = authorize(authorization, os.environ)
+        if not ok:
+            raise HTTPException(status_code=401, detail="missing or invalid bearer token")
 
         image_bytes = await file.read()
         if not image_bytes:
@@ -200,7 +199,8 @@ def web():
             try:
                 # corrected_id is unknown now; a human backfills it from the manual
                 # queue later. logging is best-effort: never fail the request over it.
-                sink.log_decision(file.filename, transcript, decision, platform=platform)
+                sink.log_decision(file.filename, transcript, decision,
+                                  platform=platform, consumer=consumer)
             except Exception as e:  # noqa: BLE001
                 print(f"decision log failed (non-fatal): {e}")
             return decision

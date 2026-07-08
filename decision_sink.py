@@ -17,12 +17,13 @@ import os
 _SCALAR_FIELDS = ("status", "member_id", "confidence", "source", "reason")
 
 
-def _row(photo, transcript, decision, platform, corrected_id):
+def _row(photo, transcript, decision, platform, corrected_id, consumer=None):
     # flatten one decision into the values a sink row stores. pure, so both the
     # sqlite and postgres implementations share it and it can be unit-tested.
     return {
         "photo": os.path.basename(str(photo)) if photo else None,
         "platform": platform,
+        "consumer": consumer,
         "transcript": transcript,
         "status": decision.get("status"),
         "member_id": decision.get("member_id"),
@@ -48,9 +49,11 @@ class DecisionSink:
         decision: dict,
         platform: str | None = None,
         corrected_id: str | None = None,
+        consumer: str | None = None,
     ) -> None:
         # append one decision. corrected_id is the human-verified answer: usually
         # unknown at decision time (None) and backfilled later from the manual queue.
+        # consumer is which integrator token authorized the call (for auditing).
         raise NotImplementedError
 
     def read_decisions(self) -> list[dict]:
@@ -78,6 +81,7 @@ class SqliteDecisionSink(DecisionSink):
                     ts TEXT NOT NULL DEFAULT (datetime('now')),
                     photo TEXT,
                     platform TEXT,
+                    consumer TEXT,
                     transcript TEXT,
                     status TEXT,
                     member_id TEXT,
@@ -91,21 +95,21 @@ class SqliteDecisionSink(DecisionSink):
                 """
             )
 
-    def log_decision(self, photo, transcript, decision, platform=None, corrected_id=None):
+    def log_decision(self, photo, transcript, decision, platform=None, corrected_id=None, consumer=None):
         import sqlite3
 
-        r = _row(photo, transcript, decision, platform, corrected_id)
+        r = _row(photo, transcript, decision, platform, corrected_id, consumer)
         candidates = json.dumps(r["candidates"], ensure_ascii=False) if r["candidates"] else None
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO ocr_decisions
-                    (photo, platform, transcript, status, member_id, confidence,
+                    (photo, platform, consumer, transcript, status, member_id, confidence,
                      source, reason, candidates, decision, corrected_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    r["photo"], r["platform"], r["transcript"], r["status"],
+                    r["photo"], r["platform"], r["consumer"], r["transcript"], r["status"],
                     r["member_id"], r["confidence"], r["source"], r["reason"],
                     candidates, json.dumps(r["decision"], ensure_ascii=False),
                     r["corrected_id"],
@@ -144,6 +148,7 @@ class PostgresDecisionSink(DecisionSink):
                         ts TIMESTAMPTZ NOT NULL DEFAULT now(),
                         photo TEXT,
                         platform TEXT,
+                        consumer TEXT,
                         transcript TEXT,
                         status TEXT,
                         member_id TEXT,
@@ -156,25 +161,29 @@ class PostgresDecisionSink(DecisionSink):
                     )
                     """
                 )
+                # upgrade a table created before consumer existed (additive, idempotent).
+                cur.execute(
+                    "ALTER TABLE ocr_decisions ADD COLUMN IF NOT EXISTS consumer TEXT"
+                )
 
-    def log_decision(self, photo, transcript, decision, platform=None, corrected_id=None):
+    def log_decision(self, photo, transcript, decision, platform=None, corrected_id=None, consumer=None):
         from psycopg.types.json import Jsonb
 
         from db import connection
 
-        r = _row(photo, transcript, decision, platform, corrected_id)
+        r = _row(photo, transcript, decision, platform, corrected_id, consumer)
         candidates = Jsonb(r["candidates"]) if r["candidates"] is not None else None
         with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO ocr_decisions
-                        (photo, platform, transcript, status, member_id, confidence,
+                        (photo, platform, consumer, transcript, status, member_id, confidence,
                          source, reason, candidates, decision, corrected_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
-                        r["photo"], r["platform"], r["transcript"], r["status"],
+                        r["photo"], r["platform"], r["consumer"], r["transcript"], r["status"],
                         r["member_id"], r["confidence"], r["source"], r["reason"],
                         candidates, Jsonb(r["decision"]), r["corrected_id"],
                     ),

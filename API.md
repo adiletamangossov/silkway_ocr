@@ -27,6 +27,11 @@ Interactive docs (token-gated): open `/docs?token=<API_TOKEN>` in a browser.
 Ask the SilkWay team for your `API_TOKEN`. Keep it server-side — never ship it in a
 browser or mobile client. Put your own service between the token and the public.
 
+Each integrator gets its **own** token, revocable independently. Send it exactly as
+`Authorization: Bearer <your-token>` — nothing about your integration changes. If
+your token suddenly returns `401`, it was rotated or revoked; contact SilkWay for a
+new one (the old value stops working immediately, by design).
+
 ---
 
 ## 2. Request
