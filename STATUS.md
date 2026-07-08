@@ -104,6 +104,20 @@ marker/address around it read fine. Confirms the standing conclusion: the lever 
 **capture legibility of the id region at source**, not the model or the resolver.
 The safety invariant held (19/20 wrong outcomes went to manual).
 
+**Visual confirmation — viewed 4 of the `None` photos directly (2026-07-08).** All
+four are the *same workstation*: a wide, underexposed overhead shot of a dark desk
+with the parcel dropped in the bottom-right corner at ~10–15% of the frame. The id
+wasn't read because it was never properly presented to the camera: `2671718` —
+parcel tiny + dark; `2671699` — only the ZTO *routing* face shows (`广州转 航达
+B.01`), receiver block not facing the camera; `2671761` — small screw-pack, only
+the merchant product label (`R888`) visible, no courier sticker in frame;
+`2671722` — parcel cut off by the frame edge, receiver block off-photo. So the
+agreed high-visibility framing is **not adopted at this station** — these are wide
+desk shots with the parcel incidental. Fix is operational, not model: fill the
+frame with the receiver-address label (`…首都波XXXXXX号`), photograph the receiver
+face (not routing/merchant), and add task lighting. No prompt/crop/fine-tune helps
+a parcel whose id is off-frame or a few dozen pixels wide.
+
 ## HTTP endpoint (send a photo → get the member_id)
 
 `modal_app.py::web` is a deployed FastAPI service that runs the **whole pipeline
