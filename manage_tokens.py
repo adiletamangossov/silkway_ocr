@@ -30,8 +30,11 @@ import sys
 
 ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 
-# keys that make up the Modal secret, mirrored from .env on sync.
-SECRET_KEYS = ["DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "API_TOKEN", "API_TOKENS"]
+# keys pushed to the Modal secret on sync. per-integrator tokens (API_TOKENS) are
+# the source of truth for endpoint auth; the legacy single API_TOKEN is deliberately
+# NOT synced — it stays a local-only convenience for client.py / the CLI. so `sync`
+# always produces a per-integrator-only secret.
+SECRET_KEYS = ["DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "API_TOKENS"]
 
 
 def _read_env() -> dict:

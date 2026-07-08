@@ -204,7 +204,9 @@ of named tokens (`API_TOKENS` JSON in the Modal secret) — each integrator gets
 own, revocable independently; the legacy single `API_TOKEN` still works as consumer
 `default`. The matched integrator name is logged with each decision (new `consumer`
 column on `ocr_decisions`, additive). `manage_tokens.py add/revoke/list/sync`
-manages the map in `.env` and pushes it to the secret. Live-verified: multiple
+manages the map in `.env` and pushes it to the secret. `sync` pushes only the
+per-integrator map (not the legacy single `API_TOKEN`, which is now a local-only
+convenience for `client.py`), so it always yields a per-integrator-only secret. Live-verified: multiple
 integrator tokens all authorize, a random token → 401, and revoking one integrator
 left the others (and the legacy token) working; consumer recorded as `default` on a
 real call. Comparison is constant-time; open only when nothing is configured (dev).
