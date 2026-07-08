@@ -118,6 +118,28 @@ frame with the receiver-address label (`…首都波XXXXXX号`), photograph the 
 face (not routing/merchant), and add task lighting. No prompt/crop/fine-tune helps
 a parcel whose id is off-frame or a few dozen pixels wide.
 
+**Before/after — the framing lever quantified (2026-07-08).** Split the same 50
+photos by whether the id was legibly *captured* (its digits appear in the
+transcript, exactly or within one digit — a capture property judged before the
+decision, so not "did we get it right"):
+
+| Group | n | correct | auto-accept | false-accept | mean brightness |
+|---|---|---|---|---|---|
+| All 50 (before, mixed framing) | 50 | 30 (60%) | 20 (40%) | 1 | 14/255 |
+| id legibly in frame | 37 | **30 (81%)** | **20 (54%)** | 1 | 14/255 |
+| id never presented to camera | 13 | 0 (0%) | 0 (0%) | 0 | 13/255 |
+
+The whole 60%→81% gap is capture: 13/50 (26%) never showed the id to the camera
+(guaranteed 0%); on the 37 that did, the pipeline already reads 81% correct / 54%
+hands-off *on these same dark photos*. Projected if all were framed like the
+in-frame group: ~40/50 correct, ~27/50 auto-accepted — **+21pp accuracy, +14pp
+automation from an operational change alone**. Both groups are equally dark (14 vs
+13 /255), so the differentiator is **label presentation** (id large, receiver face,
+not cut off), not exposure. Ceiling: the 7/37 in-frame misses are all single-digit
+decoy misreads the dense db can't disambiguate (1 became the false-accept) — the
+real model/db limit, and the only thing a crop/higher-res/fine-tune lever could
+touch, worth far less than the framing fix.
+
 ## HTTP endpoint (send a photo → get the member_id)
 
 `modal_app.py::web` is a deployed FastAPI service that runs the **whole pipeline
