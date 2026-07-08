@@ -1,5 +1,6 @@
 import pytest
 
+import validation
 from validation import SqliteUserIDStore, resolve_member_id, validate
 
 
@@ -126,13 +127,25 @@ def test_resolve_fallback_multiple_db_valid_candidates(store):
 # recognizably a warehouse label and the id run before 号 is a real client
 
 
-def test_resolve_fuzzy_marker_accepts_when_glyphs_mangled(store):
+def test_resolve_fuzzy_marker_prefills_manual_when_glyphs_mangled(store):
     # live failure mode: OCR read 首都波 as 首部城, so the exact marker missed, yet
     # the id sits before 号 on a clearly-warehouse label (库区 / 航达 present).
+    # zero-misdelivery policy (default): a strong guess, but a single-digit misread
+    # here can be a real adjacent client, so prefill for a one-click confirm rather
+    # than auto-accept.
+    decision = resolve_member_id("航达B03库区首部城960662号", store)
+    assert decision["status"] == "manual"
+    assert decision["member_id"] == "960662"
+    assert decision["confidence"] == "high"
+    assert decision["source"] == "marker_fuzzy"
+
+
+def test_resolve_fuzzy_marker_auto_accepts_when_policy_enabled(store, monkeypatch):
+    # flipping MARKER_FUZZY_AUTOACCEPT back on restores unattended auto-accept.
+    monkeypatch.setattr(validation, "MARKER_FUZZY_AUTOACCEPT", True)
     decision = resolve_member_id("航达B03库区首部城960662号", store)
     assert decision["status"] == "accept"
     assert decision["member_id"] == "960662"
-    assert decision["confidence"] == "high"
     assert decision["source"] == "marker_fuzzy"
 
 

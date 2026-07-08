@@ -9,6 +9,19 @@ from extraction import (
     wildcard_patterns,
 )
 
+# policy: whether the fuzzy-marker tier (a mangled warehouse marker + a unique
+# db-valid id run before 号) is allowed to AUTO-ACCEPT, or only to pre-fill the
+# manual queue for a one-click confirm.
+#
+# it is the one tier that can ship a wrong id: a clean single-digit misread there
+# can itself be a real, adjacent client that the db lookup cannot distinguish from
+# the true id. auto-accepting it buys hands-off automation at the cost of ~2% of
+# accepts landing on the wrong client (measured). the default is the safe
+# zero-misdelivery mode — prefill only, so a human confirms with one click and no
+# parcel is ever auto-sent to the wrong client. set True to trade that for
+# unattended automation. the exact-marker path (clean 首都波...号) is unaffected.
+MARKER_FUZZY_AUTOACCEPT = False
+
 # the validation layer answers one question: does this user id exist in
 # silkway's client database? a clean OCR parse is trusted only once the id is
 # confirmed here, because the VLM can hallucinate a digit and still produce a
@@ -164,12 +177,23 @@ def resolve_member_id(transcript: str, store: UserIDStore) -> dict:
         id_runs = find_id_candidates(transcript)
         valid_runs = [c for c in id_runs if store.exists(c)]
         if len(valid_runs) == 1:
+            # strong guess, but a single-digit misread here can be a real adjacent
+            # client, so under the zero-misdelivery policy we prefill for a one-click
+            # confirm instead of auto-accepting. see MARKER_FUZZY_AUTOACCEPT.
+            if MARKER_FUZZY_AUTOACCEPT:
+                return {
+                    "status": "accept",
+                    "member_id": valid_runs[0],
+                    "confidence": "high",
+                    "source": "marker_fuzzy",
+                    "reason": "warehouse marker present; unique db-valid id before 号",
+                }
             return {
-                "status": "accept",
+                "status": "manual",
                 "member_id": valid_runs[0],
                 "confidence": "high",
                 "source": "marker_fuzzy",
-                "reason": "warehouse marker present; unique db-valid id before 号",
+                "reason": "warehouse marker present; unique db-valid id before 号 — confirm",
             }
 
     # fallback path: marker missing or ambiguous. real labels often don't follow

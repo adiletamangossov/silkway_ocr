@@ -140,6 +140,20 @@ decoy misreads the dense db can't disambiguate (1 became the false-accept) — t
 real model/db limit, and the only thing a crop/higher-res/fine-tune lever could
 touch, worth far less than the framing fix.
 
+**Accept policy switched to zero-misdelivery (2026-07-08).** The `marker_fuzzy`
+tier (mangled marker + a unique db-valid `号`-run) was the only path that could
+auto-accept a wrong id — a clean single-digit misread there can be a real adjacent
+client the db can't distinguish — and it produced the lone false-accept in every
+run. It now **prefills the manual queue for a one-click confirm instead of
+auto-accepting** (`validation.py:MARKER_FUZZY_AUTOACCEPT = False`, one line to
+revert). The exact-marker path (`首都波…号` read cleanly) still auto-accepts. Net:
+**auto-accept false-accepts → 0**; most of the old ~40% hands-off becomes
+prefilled one-click confirms (still far faster than typing). Verified live: the
+previous false-accept photo now returns `manual` with the guess prefilled; the
+clean exact-marker sample still auto-accepts. The earlier eval tables above were
+measured under the old unattended mode — their `auto-accept` columns now read as
+`accept + one-click-confirm`, and their single false-accepts as 0.
+
 ## HTTP endpoint (send a photo → get the member_id)
 
 `modal_app.py::web` is a deployed FastAPI service that runs the **whole pipeline
