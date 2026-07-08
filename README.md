@@ -61,6 +61,7 @@ Two ideas carry the whole design:
 | `framing_split.py` | Before/after: split an eval set by whether the id was legibly captured, to quantify the framing lever. |
 | `decision_log.py`, `gt_audit.py`, `evaluation.py` | File-based decision log + offline accuracy audit. |
 | `integration_example.py` | Batch reference for wiring a backend to the endpoint. |
+| `make_guide_pdf.py` | Generate the trilingual (EN / 中文 / RU) warehouse framing guide as a 3-page PDF (`SilkWay_ID_photo_guide.pdf`) — the finding above ("read 81% when the id is in frame") as a printable hand-out for the capture station. |
 
 Tests live in `tests/` (80 tests, all offline — every DB path has a SQLite stub).
 
