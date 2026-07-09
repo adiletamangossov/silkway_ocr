@@ -194,6 +194,18 @@ the slow part; vLLM ~3–5× faster) and likely a premium GPU (A100/L40S). Note:
 `MAX_NEW_TOKENS` truncates the transcript (risking accuracy), so any shipped setting
 must be accuracy-re-verified. Prod endpoint unchanged (still L4, defaults).
 
+**vLLM tried on A10G — no win (2026-07-09).** `vllm_bench.py` serves the same
+Qwen3-VL-8B via vLLM (CUDA `-devel` base image for nvcc). Result: warm ~11–14s once
+fully warmed (variable 11–108s early), **no better than transformers**. Root cause
+in the init logs: the 8B model barely fits the 24GB A10G (only **1.16 GiB** left for
+KV cache), forcing `enforce_eager=True` (no CUDA graphs) — and CUDA graphs are where
+vLLM's speedup lives. **Conclusion: the A10G is too small for this 8B VLM to go
+fast; ~11s is the floor on it either way.** Reaching 2–3s requires a bigger GPU
+(A100/L40S: memory headroom → CUDA graphs + KV cache) which needs a **Modal payment
+method** (premium GPUs are gated). Realistic but unproven + costs real money
+(premium GPU warm 24/7). Meanwhile PaddleOCR is ~1.4s free on CPU, blocked only by
+capture quality — so the framing fix remains the far cheaper route to low latency.
+
 ## HTTP endpoint (send a photo → get the member_id)
 
 `modal_app.py::web` is a deployed FastAPI service that runs the **whole pipeline
