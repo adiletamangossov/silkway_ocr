@@ -154,6 +154,29 @@ clean exact-marker sample still auto-accepts. The earlier eval tables above were
 measured under the old unattended mode — their `auto-accept` columns now read as
 `accept + one-click-confirm`, and their single false-accepts as 0.
 
+## PaddleOCR A/B — speed vs accuracy (2026-07-09)
+
+Latency of the deployed Qwen endpoint measured ~25s warm / ~60s cold (external
+service needs 2–3s). Since the pipeline is transcribe→resolve→DB, only the
+transcribe box matters, so `paddle_ab.py` swaps in PaddleOCR (PP-OCR models via
+ONNX Runtime / RapidOCR — portable CPU, paddlepaddle's own CPU wheels SIGILL on
+Modal) and runs both engines' transcripts through the SAME `resolve_member_id`.
+
+| Engine | correct | auto-accept | false-accept | latency (warm) |
+|---|---|---|---|---|
+| Qwen3-VL (L4) | 30/50 (60%) | 2/50 | 0 | ~25 s |
+| PaddleOCR (CPU) | **0/50 (0%)** | 0 | 0 | **~1.4 s** |
+
+PaddleOCR is ~17× faster and free of GPU cost, but read **0/50** on the current
+photos — even with detection resolution raised to 1920. Transcript dump shows why:
+it reads the **prominent** printed text (product code `R888`, routing `航达B04 /
+广州转`) but **misses the small member_id**, which the VLM recovers. Same root cause
+as the accuracy gap: **the id is too small/faint in these bad captures** for classic
+OCR. KEY IMPLICATION: the framing fix is doubly valuable — a legible, well-framed id
+would let a **1.4s CPU OCR** replace the 25s GPU VLM, solving *both* accuracy and
+latency (and cost). Not viable on today's photo quality; re-test PaddleOCR on real
+high-visibility photos. `modal run paddle_ab.py::ab` reproduces this.
+
 ## HTTP endpoint (send a photo → get the member_id)
 
 `modal_app.py::web` is a deployed FastAPI service that runs the **whole pipeline
