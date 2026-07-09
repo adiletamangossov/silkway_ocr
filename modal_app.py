@@ -1,7 +1,13 @@
+import os
+
 import modal
 
 # the open-weights model we self-host
 MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
+
+# GPU is env-selectable so we can benchmark tiers (L4 / A10G / L40S / A100) without
+# editing code: e.g. `SILKWAY_GPU=A100 modal run modal_app.py::bench`.
+GPU = os.environ.get("SILKWAY_GPU", "L4")
 
 # GPU-side dependencies. these are installed into the Modal container image,
 # not on your laptop. transformers must be recent enough to know Qwen3-VL.
@@ -37,7 +43,7 @@ TRANSCRIBE_PROMPT = (
 
 @app.cls(
     image=image,
-    gpu="L4",                 # single 24GB GPU is enough for an 8B VLM
+    gpu=GPU,                  # single 24GB GPU is enough for an 8B VLM (env-selectable)
     volumes={"/cache": hf_cache},
     scaledown_window=300,     # keep the container warm 5 min after the last call
     timeout=600,
@@ -62,9 +68,20 @@ class QwenOCR:
     @modal.method()
     def transcribe(self, image_bytes: bytes, prompt: str) -> str:
         import io
+        import os
         from PIL import Image
 
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+        # latency lever 1 (prefill): cap the image resolution. a phone photo is
+        # ~3000px; Qwen turns that into thousands of vision tokens, which dominate
+        # prefill time. shrinking the longest side to MAX_IMAGE_SIDE cuts vision
+        # tokens roughly quadratically. tune via env; re-check accuracy when lowering.
+        # default 0 = off (no downscale), so committed behaviour is unchanged; set
+        # the env var (and re-verify accuracy) to trade resolution for prefill speed.
+        max_side = int(os.environ.get("MAX_IMAGE_SIDE", "0"))
+        if max_side and max(img.size) > max_side:
+            img.thumbnail((max_side, max_side))
 
         messages = [
             {
@@ -88,9 +105,12 @@ class QwenOCR:
         # repetition_penalty + no_repeat_ngram_size stop the degenerate loops the
         # model falls into on dark, low-information photos, where it otherwise
         # invents a recipient block and repeats it until max_new_tokens.
+        #
+        # latency lever 2 (decode): max_new_tokens caps how long generation runs;
+        # a courier label transcript is short, so 512 is wasteful. tune via env.
         generated = self.model.generate(
             **inputs,
-            max_new_tokens=512,
+            max_new_tokens=int(os.environ.get("MAX_NEW_TOKENS", "512")),
             do_sample=False,
             repetition_penalty=1.1,
             no_repeat_ngram_size=4,
@@ -250,6 +270,33 @@ def main(image_path: str, platform: str = None):
     # (a human fills it in later for manual cases), so corrected_id stays None.
     log_decision(image_path, text, decision, platform=platform)
     print(f"logged to {log_path()}")
+
+
+# latency benchmark: time the transcribe call, warm. run with:
+#   modal run modal_app.py::bench [--image-path label.jpg] [--n 6]
+# the first call is cold (container spin-up + weight load); the rest are warm. we
+# report the warm median, which is what a caller sees once traffic keeps a
+# container alive (or with min_containers pinned).
+@app.local_entrypoint()
+def bench(image_path: str = "image_silkway.jpeg", n: int = 6):
+    import time
+
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+
+    ocr = QwenOCR()
+    times = []
+    for i in range(n):
+        t0 = time.time()
+        text = ocr.transcribe.remote(image_bytes, TRANSCRIBE_PROMPT)
+        dt = time.time() - t0
+        times.append(dt)
+        print(f"call {i + 1}: {dt:5.2f}s  ({len(text)} chars)")
+
+    warm = times[1:] or times
+    warm_sorted = sorted(warm)
+    print(f"\ncold: {times[0]:.2f}s   warm median: {warm_sorted[len(warm_sorted)//2]:.2f}s   "
+          f"warm min: {min(warm):.2f}s   warm max: {max(warm):.2f}s")
 
 
 # end-to-end check over the real sample photos against the live db. run with:

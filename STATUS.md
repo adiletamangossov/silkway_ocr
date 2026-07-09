@@ -177,6 +177,23 @@ would let a **1.4s CPU OCR** replace the 25s GPU VLM, solving *both* accuracy an
 latency (and cost). Not viable on today's photo quality; re-test PaddleOCR on real
 high-visibility photos. `modal run paddle_ab.py::ab` reproduces this.
 
+**Qwen latency optimization (2026-07-09, in progress).** `modal_app.py::bench`
+times warm transcribe; GPU is env-selectable (`SILKWAY_GPU`), and image/output
+caps are env-tunable (`MAX_IMAGE_SIDE`, `MAX_NEW_TOKENS`; both default to original
+behaviour). Measured (image_silkway):
+
+| GPU | warm latency |
+|---|---|
+| L4 (current) | ~25s, variable to 56s |
+| A10G + caps | ~14s, stable |
+| A100 / L40S | blocked — Modal account needs a payment method |
+
+Cheap wins (image cap, token cap) don't move the needle much; the GPU dominates,
+and even A10G is ~14s. Reaching 2–3s needs **vLLM** (transformers `.generate()` is
+the slow part; vLLM ~3–5× faster) and likely a premium GPU (A100/L40S). Note: a low
+`MAX_NEW_TOKENS` truncates the transcript (risking accuracy), so any shipped setting
+must be accuracy-re-verified. Prod endpoint unchanged (still L4, defaults).
+
 ## HTTP endpoint (send a photo → get the member_id)
 
 `modal_app.py::web` is a deployed FastAPI service that runs the **whole pipeline
