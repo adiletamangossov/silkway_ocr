@@ -325,6 +325,19 @@ integrator tokens all authorize, a random token → 401, and revoking one integr
 left the others (and the legacy token) working; consumer recorded as `default` on a
 real call. Comparison is constant-time; open only when nothing is configured (dev).
 
+**Integrators live + `hangda-corp` rotated (2026-07-10).** Two integrators are
+provisioned: `backend-dev` and `hangda-corp` (航达, the `航达B04` warehouse). The
+full external-caller path was re-validated against the live endpoint via
+`client.recognize` as `hangda-corp`: `/health` ok, no-auth-header → 401, bogus token
+→ 401, and its token + `image_silkway.jpeg` → `accept 960662` (marker, high). Then
+**rotated `hangda-corp`'s token** on request (`revoke` → `add` → `sync` → `modal
+deploy`, ~5s redeploy so new containers pick up the secret immediately). Verified
+post-deploy: the **old token now → 401** (fully cut off) and the **new token →
+`accept 960662`**; `backend-dev` untouched. The token value itself lives only in the
+untracked `.env` + the Modal secret — never committed here. Rotation recipe:
+`manage_tokens.py revoke <name>` then `add <name>` (prints the new token once) then
+`sync` then `modal deploy modal_app.py`.
+
 **Durable decision logging (2026-07-07).** The container filesystem is ephemeral,
 so the endpoint writes every decision to an `ocr_decisions` table in the *same*
 Postgres (`decision_sink.py:PostgresDecisionSink`; additive `CREATE TABLE IF NOT
