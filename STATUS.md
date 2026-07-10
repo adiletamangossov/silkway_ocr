@@ -177,6 +177,20 @@ would let a **1.4s CPU OCR** replace the 25s GPU VLM, solving *both* accuracy an
 latency (and cost). Not viable on today's photo quality; re-test PaddleOCR on real
 high-visibility photos. `modal run paddle_ab.py::ab` reproduces this.
 
+**PaddleOCR reads a legible id — first high-visibility data point (2026-07-10).**
+The "0/50" above was capture quality, not a PaddleOCR ceiling — now confirmed on a
+real photo, not just projected. Ran PaddleOCR (`paddle_ab.py::dump`) on the clean
+sample `image_silkway.jpeg` (the one legible photo we have: sharp, id fills a
+readable fraction of the frame). It transcribed the full high-confidence marker line
+`…航达B04库区首都波960662号` — i.e. it read `首都波960662号` → member_id **960662**,
+the correct id, which resolves via the marker path and auto-accepts, same as Qwen —
+on **CPU in ~1.4s** vs Qwen's ~25s. So on a legible capture PaddleOCR reaches the
+same decision as the VLM at ~17× the speed and no GPU cost, exactly the payoff the
+framing fix unlocks. Caveats: this is **one** photo, not a batch, and it carries the
+easiest case (the exact `首都波…号` marker present). Strong corroboration, not a full
+eval — the standing open item (steps 1–3 below: PaddleOCR vs Qwen on a batch of
+genuine high-visibility Taobao/PDD/Poizon captures) still stands.
+
 **Qwen latency optimization (2026-07-09, in progress).** `modal_app.py::bench`
 times warm transcribe; GPU is env-selectable (`SILKWAY_GPU`), and image/output
 caps are env-tunable (`MAX_IMAGE_SIDE`, `MAX_NEW_TOKENS`; both default to original
