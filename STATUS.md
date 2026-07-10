@@ -191,6 +191,54 @@ easiest case (the exact `首都波…号` marker present). Strong corroboration,
 eval — the standing open item (steps 1–3 below: PaddleOCR vs Qwen on a batch of
 genuine high-visibility Taobao/PDD/Poizon captures) still stands.
 
+**Batch A/B on the legibly-captured subset — PaddleOCR still 0/37 (2026-07-10).**
+Since no true high-visibility platform set exists, ran the closest proxy: the
+**in-frame subset** of the recent-50 — the 37/50 photos where the id was legibly
+*captured* (its digits appear in the Qwen transcript, `framing_split.py`'s split).
+Re-ran `paddle_ab.py::ab` on just those 37 (PaddleOCR live, Qwen from the log, same
+resolver+db):
+
+| Engine | correct | auto-accept | false-accept | latency (warm) |
+|---|---|---|---|---|
+| Qwen3-VL | **30/37 (81%)** | 2/37 | 0 | ~25 s |
+| PaddleOCR (CPU) | **0/37 (0%)** | 0 | 0 | **~1.0 s** |
+
+PaddleOCR read `None` on every one Qwen got. This does **not** contradict the clean
+`image_silkway` win — it *sharpens* it: "in frame" here is judged by the **Qwen**
+transcript, i.e. the VLM's legibility bar, which is far below classic OCR's. These 37
+have the id *present but small/faint* — the 8B VLM resolves those pixels, PP-OCR's
+detector doesn't. The lesson: **"id present in the frame" ≠ "PaddleOCR-readable."**
+The bar for the CPU path is higher — id **large AND sharp**, the `image_silkway`
+regime — not merely in-frame. So the framing spec handed to the warehouse must
+demand the id be captured *big and crisp*, not just visible.
+
+**How much margin does the `image_silkway` regime have? Down to ~640px (2026-07-10).**
+Quantified how forgiving that regime is by degrading the one clean photo (orig
+900×1600) and re-reading each with PaddleOCR — how small can the id get before it
+breaks:
+
+| Longest side | id `960662` + `首都波` marker read? |
+|---|---|
+| 1600 (orig) | ✅ |
+| 1280 | ✅ |
+| 1024 | ✅ |
+| 800 | ✅ |
+| 640 | ✅ |
+| 512 | ✗ |
+| 400 | ✗ |
+
+Clean cliff between 640 and 512: the id survives down to **640px longest side — 40%
+of the original linear size, ~2.5× headroom** — then drops. So the target isn't a
+knife-edge; a capture merely *in the ballpark* of `image_silkway` (id sharp, longest
+side ≳640px-equiv) reads correctly at ~1s CPU. Caveats: this is resolution
+robustness of **one** capture — it does **not** model variance in blur / glare /
+angle / print quality (a blurry full-res shot can still fail; **sharpness matters as
+much as size**), and it's the printed-marker easy case (handwritten/red-pen ids stay
+hard regardless). Net operational spec for the warehouse: **id in focus, printed,
+longest-side ≳640px-equivalent in frame** → PaddleOCR replaces the 25s GPU with a 1s
+CPU read. The production hit-rate still needs a real high-visibility batch (open item
+below). Reproduce: shrink `image_silkway.jpeg` by max-side, `paddle_ab.py::dump`.
+
 **Qwen latency optimization (2026-07-09, in progress).** `modal_app.py::bench`
 times warm transcribe; GPU is env-selectable (`SILKWAY_GPU`), and image/output
 caps are env-tunable (`MAX_IMAGE_SIDE`, `MAX_NEW_TOKENS`; both default to original
